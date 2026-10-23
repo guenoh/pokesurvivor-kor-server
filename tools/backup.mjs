@@ -30,16 +30,17 @@ export async function snapshot(pool) {
     const accounts = (await client.query('SELECT id,name,name_key,password_hash,created_at FROM accounts ORDER BY id')).rows;
     const saves = (await client.query('SELECT account_id,data,revision,updated_at FROM saves ORDER BY account_id')).rows;
     const hasClaims = (await client.query("SELECT to_regclass('notice_claims') AS claims")).rows[0].claims;
+    const hasCoins = hasClaims && (await client.query("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='notice_claims' AND column_name='coins') AS present")).rows[0].present;
     const campaigns = hasClaims ? (await client.query('SELECT id,started_at FROM notice_campaigns ORDER BY id')).rows : [];
-    const claims = hasClaims ? (await client.query('SELECT account_id,notice_id,ticket10,claimed_at FROM notice_claims ORDER BY account_id,notice_id')).rows : [];
+    const claims = hasClaims ? (await client.query(`SELECT account_id,notice_id,ticket10,claimed_at${hasCoins ? ',coins' : ''} FROM notice_claims ORDER BY account_id,notice_id`)).rows : [];
     await client.query('COMMIT');
     // Session tokens are intentionally excluded. Restored users log in again.
-    return hasClaims ? { schema: 2, accounts, saves, campaigns, claims } : { schema: 1, accounts, saves };
+    return hasClaims ? { schema: hasCoins ? 3 : 2, accounts, saves, campaigns, claims } : { schema: 1, accounts, saves };
   } catch (e) { await client.query('ROLLBACK'); throw e; }
   finally { client.release(); }
 }
 export async function restore(pool, data) {
-  if (![1, 2].includes(data.schema) || !Array.isArray(data.accounts) || !Array.isArray(data.saves) || data.accounts.length !== data.saves.length || (data.schema === 2 && (!Array.isArray(data.campaigns) || !Array.isArray(data.claims)))) throw new Error('Invalid application backup');
+  if (![1, 2, 3].includes(data.schema) || !Array.isArray(data.accounts) || !Array.isArray(data.saves) || data.accounts.length !== data.saves.length || (data.schema >= 2 && (!Array.isArray(data.campaigns) || !Array.isArray(data.claims)))) throw new Error('Invalid application backup');
   await migrate(pool);
   const client = await pool.connect();
   try {
@@ -50,9 +51,9 @@ export async function restore(pool, data) {
     }
     for (const a of data.accounts) await client.query('INSERT INTO accounts(id,name,name_key,password_hash,created_at) VALUES($1,$2,$3,$4,$5)', [a.id, a.name, a.name_key, a.password_hash, a.created_at]);
     for (const s of data.saves) await client.query('INSERT INTO saves(account_id,data,revision,updated_at) VALUES($1,$2,$3,$4)', [s.account_id, JSON.stringify(s.data), s.revision, s.updated_at]);
-    if (data.schema === 2) {
+    if (data.schema >= 2) {
       for (const c of data.campaigns) await client.query('INSERT INTO notice_campaigns(id,started_at) VALUES($1,$2) ON CONFLICT(id) DO UPDATE SET started_at=excluded.started_at', [c.id, c.started_at]);
-      for (const c of data.claims) await client.query('INSERT INTO notice_claims(account_id,notice_id,ticket10,claimed_at) VALUES($1,$2,$3,$4)', [c.account_id, c.notice_id, c.ticket10, c.claimed_at]);
+      for (const c of data.claims) await client.query('INSERT INTO notice_claims(account_id,notice_id,ticket10,claimed_at,coins) VALUES($1,$2,$3,$4,$5)', [c.account_id, c.notice_id, c.ticket10, c.claimed_at, data.schema >= 3 ? c.coins : 0]);
     }
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK'); throw e; }
