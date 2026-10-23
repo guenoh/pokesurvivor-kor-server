@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { initializeNotices } from './notices.js';
 export async function migrate(pool) {
-  for (const file of ['001-init.sql', '002-notices.sql', '003-notice-coins.sql']) {
+  for (const file of ['001-init.sql', '002-notices.sql', '003-notice-coins.sql', '004-community.sql']) {
     await pool.query(await readFile(new URL('../migrations/' + file, import.meta.url), 'utf8'));
   }
   await initializeNotices(pool);
