@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pokesurvivor
+      POSTGRES_DB: pokesurvivor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a long random database password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U pokesurvivor -d pokesurvivor]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  api:
+    image: pokesurvivor-kor-api:${RELEASE_TAG:-local}
+    build: .
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    environment:
+      DATABASE_URL: postgres://pokesurvivor:${POSTGRES_PASSWORD}@postgres:5432/pokesurvivor
+      APP_ORIGIN: ${APP_ORIGIN:?Set the HTTPS game origin without a trailing slash}
+    ports: ['127.0.0.1:3000:3000']
+    depends_on:
+      postgres:
+        condition: service_healthy
+volumes:
+  pgdata:

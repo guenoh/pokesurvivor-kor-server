@@ -1,0 +1,100 @@
+name: Manual production deployment
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: production
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: pokesurvivor_test
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U test -d pokesurvivor_test" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://test:test-only-password@localhost:5432/pokesurvivor_test
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: npm install --global pnpm@11.25.0
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: node --test --test-timeout=30000
+      - run: git archive --format=tar.gz --output=server.tar.gz HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: production-release
+          path: server.tar.gz
+          retention-days: 7
+  deploy:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - name: Require configured deployment target
+        env:
+          ENABLED: ${{ vars.DEPLOY_ENABLED }}
+        run: test "$ENABLED" = true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: production-release
+          path: release
+      - name: Upload reviewed release
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          dir="/srv/pokesurvivor-kor-server/releases/$GITHUB_SHA"
+          ssh "$target" "mkdir -p '$dir'"
+          scp release/server.tar.gz "$target:$dir/server.tar.gz"
+          ssh "$target" bash -s -- "$GITHUB_SHA" <<'REMOTE'
+          set -euo pipefail
+          sha="$1"
+          base=/srv/pokesurvivor-kor-server
+          dir="$base/releases/$sha"
+          tar -xzf "$dir/server.tar.gz" -C "$dir"
+          export RELEASE_TAG="$sha"
+          compose() { docker compose --project-name pokesurvivor-kor --env-file "$base/.env" -f "$dir/compose.yml" "$@"; }
+          compose up -d --wait postgres
+          mkdir -p "$base/backups"
+          umask 077
+          compose exec -T postgres pg_dump -U pokesurvivor -d pokesurvivor > "$base/backups/$sha.sql"
+          compose build api
+          compose run --rm --no-deps api node src/migrate.js
+          compose up -d --no-deps api
+          for attempt in $(seq 1 15); do
+            if curl -fsS http://127.0.0.1:3000/api/health; then
+              ln -sfn "$dir" "$base/current.next"
+              mv -Tf "$base/current.next" "$base/current"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Health check failed; restore previous API release using the runbook.' >&2
+          exit 1
+          REMOTE
