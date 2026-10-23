@@ -31,7 +31,9 @@ jobs:
       - run: npm install --global pnpm@11.25.0
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: node --check src/app.js && node --check src/server.js
-      - run: node --test --test-timeout=30000
+      - run: node --test --test-timeout=30000 test/*.test.js
+      - name: Build and test the pinned Korean game
+        run: node tools/build-client.mjs
       - name: Validate container and production startup
         run: |
           POSTGRES_PASSWORD=test-only-password APP_ORIGIN=https://game.example.invalid docker compose config --quiet

@@ -1,0 +1,23 @@
+# No expiring Render database is provisioned. DATABASE_URL comes from Neon Free.
+services:
+  - type: web
+    name: pokesurvivor-kor
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    autoDeployTrigger: off
+    buildCommand: npm install --global pnpm@11.25.0 && pnpm install --frozen-lockfile --ignore-scripts --prod=false && node tools/build-client.mjs
+    startCommand: node src/server.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 24.19.0
+      - key: NODE_ENV
+        value: production
+      - key: STATIC_ROOT
+        value: ./public
+      - key: MIGRATE_ON_START
+        value: "true"
+      - key: DATABASE_URL
+        sync: false

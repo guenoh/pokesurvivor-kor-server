@@ -31,7 +31,7 @@ jobs:
           node-version: '24'
       - run: npm install --global pnpm@11.25.0
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: node --test --test-timeout=30000
+      - run: node --test --test-timeout=30000 test/*.test.js
       - run: git archive --format=tar.gz --output=server.tar.gz HEAD
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

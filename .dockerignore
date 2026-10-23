@@ -3,3 +3,7 @@ node_modules
 .env
 test
 backups
+.build
+public
+*.pem
+*.pskor-backup
