@@ -35,6 +35,8 @@ APP_ORIGIN=http://localhost:8080 node src/server.js
 
 배포·복구: [DEPLOYMENT.md](DEPLOYMENT.md).
 
+무료 시험 배포는 **[Render + Neon 안내](RENDER-NEON.md)**를 사용합니다. Render의 만료형 무료 DB 대신 Neon Free에 데이터를 보관하며, 게임 서버 재시작과 DB 보관을 분리합니다. 정확한 게임 커밋을 함께 빌드하고 테스트·수동 승인 후 배포하며 암호화 백업을 지원합니다.
+
 ## 권리
 
 이 저장소의 서버 코드는 이번 작업에서 새로 작성한 구현입니다. 게임 코드·그래픽·음악을 포함하지 않으며 원작을 MIT로 재허가하지 않습니다. 서버 자체의 별도 배포 라이선스는 아직 지정하지 않았습니다. 게임과 함께 운영할 때는 원작 코드의 PolyForm Noncommercial 및 그래픽의 비상업·저작자 표시 조건을 준수해야 합니다.

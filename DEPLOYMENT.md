@@ -1,6 +1,6 @@
 # 배포 준비 및 운영 가이드
 
-현재 운영 서버·도메인은 미정입니다. 두 GitHub 저장소의 `production` 환경은 수동 승인을 요구하고 `DEPLOY_ENABLED=false`로 설정합니다. 실제 배포는 실행하지 않습니다.
+이 문서는 별도 Linux/SSH 서버를 위한 구성입니다. 무료 시험 배포는 **[Render + Neon 안내](RENDER-NEON.md)**를 사용합니다. 두 GitHub 저장소의 `production` 환경은 수동 승인을 요구하며, SSH 경로의 `DEPLOY_ENABLED=false`는 유지합니다.
 
 ## 서버 준비
 

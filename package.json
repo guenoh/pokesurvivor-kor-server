@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "migrate": "node src/migrate.js",
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "check": "node --check src/app.js && node --check src/server.js"
   },
   "dependencies": { "pg": "8.16.3" },

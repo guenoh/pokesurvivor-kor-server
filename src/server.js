@@ -1,11 +1,16 @@
 import pg from 'pg';
 import { createApp } from './app.js';
+import { attachGame } from './static.js';
+import { migrate } from './migrate.js';
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000 });
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 5, connectionTimeoutMillis: 15000, idleTimeoutMillis: 10000 });
+pool.on('error', error => console.error('Idle database connection failed', { code: error.code || 'internal' }));
 const production = process.env.NODE_ENV === 'production';
-const origin = process.env.APP_ORIGIN || 'http://localhost:8080';
+const origin = process.env.APP_ORIGIN || process.env.RENDER_EXTERNAL_URL || 'http://localhost:8080';
 if (production && !origin.startsWith('https://')) throw new Error('Production APP_ORIGIN must use HTTPS');
 const app = createApp({ pool, origin, secureCookies: production });
+if (process.env.MIGRATE_ON_START === 'true') await migrate(pool);
+if (process.env.STATIC_ROOT) await attachGame(app, process.env.STATIC_ROOT);
 app.listen(Number(process.env.PORT || 3000), '0.0.0.0');
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
   app.close(async () => { await pool.end(); process.exit(0); });
