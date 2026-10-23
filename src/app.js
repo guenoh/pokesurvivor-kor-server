@@ -2,6 +2,7 @@ import http from 'node:http';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { hashPassword, verifyPassword, tokenHash } from './auth.js';
 import { listNotices, claimNotice, noticeConfig } from './notices.js';
+import { createCommunity } from './community.js';
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -55,7 +56,8 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
     const { rows } = await pool.query('SELECT data,revision FROM saves WHERE account_id=$1', [account.id]);
     return { user: { id: account.id, name: account.name }, save: rows[0].data, revision: rows[0].revision };
   }
-  return http.createServer({ requestTimeout: 30_000, headersTimeout: 15_000 }, async (req, res) => {
+  const community = createCommunity({ pool, origin, session, clock, logger });
+  const app = http.createServer({ requestTimeout: 30_000, headersTimeout: 15_000 }, async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -105,6 +107,12 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
         const account = await session(req), data = await body(req);
         return send(200, await claimNotice(pool, account, claim[1], data?.revision, notices, clock()));
       }
+      if (url.pathname === '/api/community' || url.pathname.startsWith('/api/community/')) {
+        const account = await session(req);
+        community.live.rate(account.id, 'http', 90, 60000);
+        const data = ['POST', 'PUT'].includes(req.method) ? await body(req) : undefined;
+        return send(200, await community.handle(req, account, url, data));
+      }
       const supported = ['GET /api/session', 'GET /api/save', 'PUT /api/save', 'POST /api/auth/logout', 'DELETE /api/account'];
       if (!supported.includes(route)) fail(404, '찾을 수 없습니다.');
       const account = await session(req);
@@ -122,8 +130,13 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
       if (route === 'DELETE /api/account') {
         const data = await body(req);
         if (typeof data?.password !== 'string' || data.password.length > 128 || !await verifyPassword(data.password, account.password_hash)) fail(401, '비밀번호가 올바르지 않습니다.');
+        const peers = (await community.live.snapshot(account)).friends.map(f => f.uid);
+        await pool.query('DELETE FROM survival_records WHERE id IN (SELECT record_id FROM record_members WHERE account_id=$1)', [account.id]);
         await pool.query('DELETE FROM accounts WHERE id=$1', [account.id]);
+        community.live.disconnect(account.id);
+        await community.live.refresh(peers);
       } else await pool.query('DELETE FROM sessions WHERE token_hash=$1', [account.token]);
+      community.live.disconnect(account.id, account.token);
       res.setHeader('Set-Cookie', cookie('', 0));
       return send(200, { ok: true });
     } catch (e) {
@@ -132,4 +145,7 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
       else res.end();
     }
   });
+  community.live.attach(app);
+  app.community = community;
+  return app;
 }

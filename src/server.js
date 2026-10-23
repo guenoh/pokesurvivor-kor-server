@@ -13,6 +13,7 @@ if (process.env.MIGRATE_ON_START === 'true') await migrate(pool);
 if (process.env.STATIC_ROOT) await attachGame(app, process.env.STATIC_ROOT);
 app.listen(Number(process.env.PORT || 3000), '0.0.0.0');
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
+  app.community.live.close();
   app.close(async () => { await pool.end(); process.exit(0); });
   setTimeout(() => process.exit(1), 10_000).unref();
 });
