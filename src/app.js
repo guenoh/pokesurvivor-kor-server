@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { hashPassword, verifyPassword, tokenHash } from './auth.js';
+import { listNotices, claimNotice, noticeConfig } from './notices.js';
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -26,7 +27,7 @@ async function body(req) {
   catch { fail(400, '잘못된 JSON입니다.'); }
 }
 
-export function createApp({ pool, origin, secureCookies = true, authLimit = 20, logger = console }) {
+export function createApp({ pool, origin, secureCookies = true, authLimit = 20, logger = console, notices = noticeConfig, clock = Date.now }) {
   if (!origin || new URL(origin).origin !== origin) throw new Error('APP_ORIGIN must be one exact origin without a trailing slash');
   const cookieName = secureCookies ? '__Host-pskor' : 'pskor_dev';
   const buckets = new Map();
@@ -42,7 +43,7 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
   async function session(req) {
     const raw = (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith(cookieName + '='))?.slice(cookieName.length + 1);
     if (!raw || !/^[a-f0-9]{64}$/.test(raw)) fail(401, '로그인이 필요합니다.');
-    const result = await pool.query('SELECT a.id, a.name, a.password_hash FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>now()', [tokenHash(raw)]);
+    const result = await pool.query('SELECT a.id, a.name, a.password_hash, a.created_at FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>now()', [tokenHash(raw)]);
     if (!result.rows[0]) fail(401, '다시 로그인해 주세요.');
     return { ...result.rows[0], token: tokenHash(raw) };
   }
@@ -70,7 +71,7 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
         rateLimit(req);
         const data = await body(req), name = typeof data?.name === 'string' ? data.name.trim().normalize('NFKC') : '';
         const password = data?.password;
-        if (!/^[\p{L}\p{N}_]{3,16}$/u.test(name) || typeof password !== 'string' || password.length < 12 || password.length > 128) fail(400, '이름은 3~16자, 비밀번호는 12~128자로 입력해 주세요.');
+        if (!/^[\p{L}\p{N}_]{3,16}$/u.test(name) || typeof password !== 'string' || password.length < 4 || password.length > 128) fail(400, '이름은 3~16자, 비밀번호는 4~128자로 입력해 주세요.');
         const nameKey = name.toLocaleLowerCase('en-US');
         if (route.endsWith('/register')) {
           const hash = await hashPassword(password), id = randomUUID();
@@ -93,6 +94,16 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
         const valid = await verifyPassword(password, encoded);
         if (!rows[0] || !valid) fail(401, '이름 또는 비밀번호가 올바르지 않습니다.');
         return send(200, await openSession(res, rows[0]));
+      }
+      if (route === 'GET /api/notices') {
+        let account = null;
+        try { account = await session(req); } catch (e) { if (e.status !== 401) throw e; }
+        return send(200, await listNotices(pool, account, notices, clock()));
+      }
+      const claim = route.match(/^POST \/api\/notices\/([a-z0-9-]+)\/claim$/);
+      if (claim) {
+        const account = await session(req), data = await body(req);
+        return send(200, await claimNotice(pool, account, claim[1], data?.revision, notices, clock()));
       }
       const supported = ['GET /api/session', 'GET /api/save', 'PUT /api/save', 'POST /api/auth/logout', 'DELETE /api/account'];
       if (!supported.includes(route)) fail(404, '찾을 수 없습니다.');
