@@ -33,7 +33,7 @@ production 환경 설정:
 
 ## 암호화된 매일 백업
 
-GitHub `Encrypted database backup`은 매일 04:43 KST에 일관된 읽기 전용 트랜잭션으로 계정·비밀번호 해시·저장 데이터·수정 번호를 읽습니다. 로그인 세션은 제외합니다. RSA-OAEP/SHA-256과 AES-256-GCM으로 암호화한 파일만 Actions artifact에 올립니다. 복구 개인 키는 GitHub/Render에 등록하지 않습니다. 이 백업은 위 표의 배포 승인과 독립적으로 실행됩니다.
+GitHub `Encrypted database backup`은 매일 04:43 KST에 일관된 읽기 전용 트랜잭션으로 계정·비밀번호 해시·저장 데이터·수정 번호·공지 보상 수령 기록·이벤트 시작 시각을 읽습니다. 로그인 세션은 제외합니다. RSA-OAEP/SHA-256과 AES-256-GCM으로 암호화한 파일만 Actions artifact에 올립니다. 복구 개인 키는 GitHub/Render에 등록하지 않습니다. 이 백업은 위 표의 배포 승인과 독립적으로 실행됩니다.
 
 설정은 저장소 수준입니다:
 

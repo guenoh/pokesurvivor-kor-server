@@ -49,7 +49,7 @@ test('account isolation, session, revision conflicts, logout and deletion', asyn
 test('CSRF, credential validation, invalid payload and database health', async () => {
   assert.equal((await request('/api/health')).status, 200);
   assert.equal((await request('/api/auth/register', { method: 'POST', data: {}, from: 'https://evil.example' })).status, 403);
-  assert.equal((await request('/api/auth/register', { method: 'POST', data: { name: 'abc', password: 'short' } })).status, 400);
+  assert.equal((await request('/api/auth/register', { method: 'POST', data: { name: 'abc', password: 'abc' } })).status, 400);
   const a = await request('/api/auth/register', { method: 'POST', data: { name: 'safe' + Date.now().toString(36), password: 'safe-password-123' } });
   const save = JSON.parse('{"__proto__":{"polluted":true}}');
   assert.equal((await request('/api/save', { method: 'PUT', cookie: a.cookie, data: { save, revision: 0 } })).status, 400);

@@ -5,6 +5,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --prod --frozen-lockfile --ignore-scripts
 COPY --chown=node:node src ./src
 COPY --chown=node:node migrations ./migrations
+COPY --chown=node:node config ./config
 USER node
 ENV NODE_ENV=production PORT=3000
 EXPOSE 3000

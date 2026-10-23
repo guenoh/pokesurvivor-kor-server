@@ -4,6 +4,7 @@ import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { seal, unseal, snapshot, restore } from '../tools/backup.mjs';
 import { migrate } from '../src/migrate.js';
+import { claimNotice } from '../src/notices.js';
 const pair = generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } });
 test('encrypted backups round trip and reject tampering and incorrect keys', () => {
   const data = { schema: 1, accounts: [{ name: '복구시험', password_hash: 'secret-hash' }], saves: [{ data: { coins: 42 } }] };
@@ -30,11 +31,14 @@ test('PostgreSQL snapshot and encrypted restore preserve accounts, saves and rev
   try {
     await migrate(source);
     await source.query("INSERT INTO accounts(id,name,name_key,password_hash) VALUES('test-id','복구시험','복구시험','password-hash')");
-    await source.query("INSERT INTO saves(account_id,data,revision) VALUES('test-id',$1,7)", [JSON.stringify({ coins: 25, owned: { 25: { from: 'starter' } } })]);
+    await source.query("INSERT INTO saves(account_id,data,revision) VALUES('test-id',$1,7)", [JSON.stringify({ coins: 25, tickets: { t1: 0, t10: 100 }, led: { base: { c: [25, 0], t1: [0, 0], t10: [0, 0] }, 'server:kor-opening-20261023': { t10: [100, 0] } }, owned: { 25: { from: 'starter' } } })]);
     await source.query("INSERT INTO sessions(token_hash,account_id,expires_at) VALUES('test-token','test-id',now()+interval '1 day')");
+    await source.query("INSERT INTO notice_claims(account_id,notice_id,ticket10) VALUES('test-id','kor-opening-20261023',100)");
     const original = await snapshot(source);
     await restore(target, unseal(seal(original, pair.publicKey), pair.privateKey));
     assert.deepEqual(await snapshot(target), original);
+    const claimed = await claimNotice(target, { id: 'test-id', name: '복구시험', created_at: new Date() }, 'kor-opening-20261023', 7);
+    assert.equal(claimed.alreadyClaimed, true); assert.equal(claimed.save.tickets.t10, 100);
     assert.equal(Number((await target.query('SELECT count(*) FROM sessions')).rows[0].count), 0);
     await assert.rejects(restore(target, original), /empty database/);
     assert.deepEqual(await snapshot(target), original);
