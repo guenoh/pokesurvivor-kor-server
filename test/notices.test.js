@@ -79,6 +79,39 @@ test('PostgreSQL serializes simultaneous claims from two devices', { skip: !proc
   assert.equal((await request('/api/save', { cookie: user.cookie })).data.save.tickets.t10, 100);
   assert.equal(Number((await pool.query('SELECT count(*) FROM notice_claims WHERE account_id=$1', [user.data.user.id])).rows[0].count), 1);
 });
+test('added opening coins are claimed once without repeating tickets, even with concurrent retries', async () => {
+  const user = await register();
+  const original = await claim(user.cookie, 'test-signup');
+  assert.equal(original.data.save.tickets.t10, 100);
+  const extended = structuredClone(config); extended.notices[0].reward.coins = 150000;
+  const account = { id: user.data.user.id, name: user.data.user.name, created_at: new Date() };
+  const { listNotices, claimNotice } = await import('../src/notices.js');
+  const state = (await listNotices(pool, account, extended, clock)).notices[0].reward;
+  assert.equal(state.partiallyClaimed, true); assert.equal(state.claimed, false);
+  assert.deepEqual(state.remaining, { ticket10: 0, coins: 150000 });
+  const results = process.env.DATABASE_URL
+    ? await Promise.all([claimNotice(pool, account, 'test-signup', original.data.revision, extended, clock), claimNotice(pool, account, 'test-signup', original.data.revision, extended, clock)])
+    : [await claimNotice(pool, account, 'test-signup', original.data.revision, extended, clock)];
+  assert.equal(results.filter(result => result.granted).length, 1);
+  const first = results.find(result => result.granted);
+  assert.deepEqual(first.awarded, { ticket10: 0, coins: 150000 });
+  assert.equal(first.save.tickets.t10, 100); assert.equal(first.save.coins, 150000);
+  assert.deepEqual(first.save.led['server:test-signup'], { t10: [100, 0], c: [150000, 0] });
+  const retry = await claimNotice(pool, account, 'test-signup', original.data.revision, extended, clock);
+  assert.equal(retry.alreadyClaimed, true); assert.equal(retry.save.coins, 150000);
+  assert.equal((await listNotices(pool, account, extended, clock)).notices[0].reward.claimed, true);
+  const expired = await register(); await claim(expired.cookie, 'test-signup');
+  await assert.rejects(claimNotice(pool, { ...account, id: expired.data.user.id }, 'test-signup', 1, extended, clock + 25 * 3600000), { status: 410 });
+});
+test('fresh opening rewards grant both currencies and preserve an existing spent ledger', () => {
+  const notice = { id: 'opening', reward: { ticket10: 100, coins: 150000 } };
+  const fresh = grantTickets({ coins: 42, tickets: { t1: 2, t10: 3 } }, notice, clock);
+  assert.equal(fresh.coins, 150042); assert.equal(fresh.tickets.t10, 103);
+  const prior = { coins: 20, tickets: { t1: 0, t10: 70 }, led: { base: { c: [20, 0] }, 'server:opening': { t10: [100, 30] } } };
+  const toppedUp = grantTickets(prior, notice, clock, { ticket10: 0, coins: 150000 });
+  assert.equal(toppedUp.tickets.t10, 70); assert.deepEqual(toppedUp.led['server:opening'], { t10: [100, 30], c: [150000, 0] });
+  assert.equal(prior.coins, 20);
+});
 test('legacy save currency and inventory survive the first server reward ledger entry', () => {
   const original = { coins: 500, tickets: { t1: 4, t10: 2 }, bag: { mint: 3 }, tms: { 'iron-tail': 1 } };
   const granted = grantTickets(original, config.notices[0], Date.now());

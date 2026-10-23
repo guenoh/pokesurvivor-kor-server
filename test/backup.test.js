@@ -24,26 +24,36 @@ test('PostgreSQL snapshot and encrypted restore preserve accounts, saves and rev
   const connectionString = process.env.DATABASE_URL;
   const admin = new pg.Pool({ connectionString });
   const id = randomUUID().replaceAll('-', '');
-  const sourceSchema = `backup_source_${id}`, targetSchema = `backup_target_${id}`;
+  const sourceSchema = `backup_source_${id}`, targetSchema = `backup_target_${id}`, legacySchema = `backup_legacy_${id}`;
   await admin.query(`CREATE SCHEMA ${sourceSchema}`); await admin.query(`CREATE SCHEMA ${targetSchema}`);
+  await admin.query(`CREATE SCHEMA ${legacySchema}`);
   const source = new pg.Pool({ connectionString, options: `-c search_path=${sourceSchema}` });
   const target = new pg.Pool({ connectionString, options: `-c search_path=${targetSchema}` });
+  const legacy = new pg.Pool({ connectionString, options: `-c search_path=${legacySchema}` });
   try {
     await migrate(source);
     await source.query("INSERT INTO accounts(id,name,name_key,password_hash) VALUES('test-id','복구시험','복구시험','password-hash')");
-    await source.query("INSERT INTO saves(account_id,data,revision) VALUES('test-id',$1,7)", [JSON.stringify({ coins: 25, tickets: { t1: 0, t10: 100 }, led: { base: { c: [25, 0], t1: [0, 0], t10: [0, 0] }, 'server:kor-opening-20261023': { t10: [100, 0] } }, owned: { 25: { from: 'starter' } } })]);
+    await source.query("INSERT INTO saves(account_id,data,revision) VALUES('test-id',$1,7)", [JSON.stringify({ coins: 150025, tickets: { t1: 0, t10: 100 }, led: { base: { c: [25, 0], t1: [0, 0], t10: [0, 0] }, 'server:kor-opening-20261023': { t10: [100, 0], c: [150000, 0] } }, owned: { 25: { from: 'starter' } } })]);
     await source.query("INSERT INTO sessions(token_hash,account_id,expires_at) VALUES('test-token','test-id',now()+interval '1 day')");
-    await source.query("INSERT INTO notice_claims(account_id,notice_id,ticket10) VALUES('test-id','kor-opening-20261023',100)");
+    await source.query("INSERT INTO notice_claims(account_id,notice_id,ticket10,coins) VALUES('test-id','kor-opening-20261023',100,150000)");
     const original = await snapshot(source);
     await restore(target, unseal(seal(original, pair.publicKey), pair.privateKey));
     assert.deepEqual(await snapshot(target), original);
+    assert.equal(original.schema, 3);
     const claimed = await claimNotice(target, { id: 'test-id', name: '복구시험', created_at: new Date() }, 'kor-opening-20261023', 7);
-    assert.equal(claimed.alreadyClaimed, true); assert.equal(claimed.save.tickets.t10, 100);
+    assert.equal(claimed.alreadyClaimed, true); assert.equal(claimed.save.tickets.t10, 100); assert.equal(claimed.save.coins, 150025);
     assert.equal(Number((await target.query('SELECT count(*) FROM sessions')).rows[0].count), 0);
     await assert.rejects(restore(target, original), /empty database/);
     assert.deepEqual(await snapshot(target), original);
+    const oldBackup = structuredClone(original); oldBackup.schema = 2;
+    for (const receipt of oldBackup.claims) delete receipt.coins;
+    oldBackup.saves[0].data.coins = 25; delete oldBackup.saves[0].data.led['server:kor-opening-20261023'].c;
+    await restore(legacy, oldBackup);
+    const toppedUp = await claimNotice(legacy, { id: 'test-id', name: '복구시험', created_at: new Date() }, 'kor-opening-20261023', 7);
+    assert.deepEqual(toppedUp.awarded, { ticket10: 0, coins: 150000 });
+    assert.equal(toppedUp.save.coins, 150025); assert.equal(toppedUp.save.tickets.t10, 100);
   } finally {
-    await source.end(); await target.end();
-    await admin.query(`DROP SCHEMA ${sourceSchema} CASCADE`); await admin.query(`DROP SCHEMA ${targetSchema} CASCADE`); await admin.end();
+    await source.end(); await target.end(); await legacy.end();
+    await admin.query(`DROP SCHEMA ${sourceSchema} CASCADE`); await admin.query(`DROP SCHEMA ${targetSchema} CASCADE`); await admin.query(`DROP SCHEMA ${legacySchema} CASCADE`); await admin.end();
   }
 });
