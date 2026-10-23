@@ -24,6 +24,6 @@
 
 ## 후원 안내
 
-현재 `support.url`은 `null`이며 **결제·후원 수령은 연결하지 않았습니다.** 공지 아래에 자율 후원 안내와 링크 준비 중 문구만 표시합니다. 실제 공개 후원 링크가 정해지면 HTTPS 주소로 설정할 수 있습니다. 후원 여부는 선물, 뽑기권, 포켓몬, 게임 기능에 영향을 주지 않습니다.
+`support.url`은 운영자가 가입·정산 설정을 마친 한국판 전용 [Buy Me a Coffee 페이지](https://buymeacoffee.com/pokesurvivorkor)입니다. 공지 아래의 ‘서버 운영 후원하기’에서 외부 페이지로 이동합니다. 게임은 결제 정보나 정산 계좌를 받지 않습니다. 후원 여부는 선물, 뽑기권, 포켓몬, 게임 기능에 영향을 주지 않습니다. 링크를 중단하려면 `support.url`을 `null`로 변경합니다.
 
 원작 소프트웨어의 [PolyForm Noncommercial](https://polyformproject.org/licenses/noncommercial/1.0.0)과 그래픽의 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/legalcode.en)은 계속 적용됩니다. 운영비를 위한 자율 후원이라고 해서 자동으로 허용된다고 단정할 수 없습니다. CC도 비상업 여부는 구체적인 이용 목적·상황에 따라 달라진다고 설명합니다([공식 FAQ](https://creativecommons.org/faq/#does-my-use-violate-the-noncommercial-clause-of-the-licenses)). 실제 후원을 연결하기 전 운영 방식에 맞는 권리 범위를 확인하세요. 원작자의 후원 링크나 결제 계정을 한국판 운영자의 것으로 바꾸어 표시하지 않습니다.
