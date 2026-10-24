@@ -30,3 +30,7 @@
 `support.url`은 운영자가 가입·정산 설정을 마친 한국판 전용 [Buy Me a Coffee 페이지](https://buymeacoffee.com/pokesurvivorkor)입니다. 공지 아래의 ‘서버 운영 후원하기’에서 외부 페이지로 이동합니다. 게임은 결제 정보나 정산 계좌를 받지 않습니다. 후원 여부는 선물, 뽑기권, 포켓몬, 게임 기능에 영향을 주지 않습니다. 링크를 중단하려면 `support.url`을 `null`로 변경합니다.
 
 원작 소프트웨어의 [PolyForm Noncommercial](https://polyformproject.org/licenses/noncommercial/1.0.0)과 그래픽의 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/legalcode.en)은 계속 적용됩니다. 운영비를 위한 자율 후원이라고 해서 자동으로 허용된다고 단정할 수 없습니다. CC도 비상업 여부는 구체적인 이용 목적·상황에 따라 달라진다고 설명합니다([공식 FAQ](https://creativecommons.org/faq/#does-my-use-violate-the-noncommercial-clause-of-the-licenses)). 실제 후원을 연결하기 전 운영 방식에 맞는 권리 범위를 확인하세요. 원작자의 후원 링크나 결제 계정을 한국판 운영자의 것으로 바꾸어 표시하지 않습니다.
+
+## 최신 공지 표시
+
+선물 없는 업데이트를 선물 공지보다 먼저 표시하고 `publishedAt`(예: `2026-10-24`)의 최신 날짜 순으로 정렬합니다. `summary`는 제목 바로 아래의 핵심 요약이고, `paragraphs`에는 이번 변경만 넣습니다. 이전 내용은 `history` 문자열 배열로 옮기면 기본적으로 접혀 표시되며 이용자가 펼쳐서 읽을 수 있습니다. 공지를 다시 알릴 때는 같은 ID의 `version`을 올리되, 선물 공지의 ID·기간·보상은 유지합니다.
