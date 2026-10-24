@@ -56,3 +56,19 @@ test('CSRF, credential validation, invalid payload and database health', async (
   assert.equal((await request('/api/save', { method: 'PUT', cookie: a.cookie, data: { save: [], revision: 0 } })).status, 400);
   assert.equal((await request('/api/save', { method: 'PUT', cookie: a.cookie, data: { save: {}, revision: -1 } })).status, 400);
 });
+
+test('event companion and existing progress survive save, logout and a fresh login', async () => {
+  const name='event'+Date.now().toString(36),password='event-test-password';
+  const account=await request('/api/auth/register',{method:'POST',data:{name,password}});
+  assert.equal(account.status,201);
+  const save={v:3,coins:125000,tickets:{t1:4,t10:92},partner:1150,
+    owned:{150:{from:'gacha',at:100},1150:{from:'armored-event-v1',at:200}},
+    pupg:{150:{hp:3},1150:{hp:2}},led:{device1:{c:[150000,25000],t1:[4,0],t10:[100,8]}}};
+  const stored=await request('/api/save',{method:'PUT',cookie:account.cookie,data:{save,revision:0}});
+  assert.equal(stored.status,200);assert.equal(stored.data.revision,1);
+  assert.equal((await request('/api/auth/logout',{method:'POST',cookie:account.cookie})).status,200);
+  const signed=await request('/api/auth/login',{method:'POST',data:{name,password}});
+  assert.equal(signed.status,200);
+  const restored=await request('/api/session',{cookie:signed.cookie});
+  assert.deepEqual(restored.data.save,save);assert.equal(restored.data.revision,1);
+});
