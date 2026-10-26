@@ -35,15 +35,16 @@ export async function snapshot(pool) {
     const claims = hasClaims ? (await client.query(`SELECT account_id,notice_id,ticket10,claimed_at${hasCoins ? ',coins' : ''} FROM notice_claims ORDER BY account_id,notice_id`)).rows : [];
     const hasCommunity = (await client.query("SELECT to_regclass('social_friends') AS present")).rows[0].present;
     const community = hasCommunity ? { friends: (await client.query('SELECT * FROM social_friends ORDER BY a,b')).rows, records: (await client.query('SELECT * FROM survival_records ORDER BY id')).rows, members: (await client.query('SELECT * FROM record_members ORDER BY record_id,seat')).rows } : null;
+    const hasDamage = hasCommunity && (await client.query("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='survival_records' AND column_name='arceus_damage') AS present")).rows[0].present;
     await client.query('COMMIT');
-    if (community) return { schema: 4, accounts, saves, campaigns, claims, ...community };
+    if (community) return { schema: hasDamage ? 5 : 4, accounts, saves, campaigns, claims, ...community };
     // Session tokens are intentionally excluded. Restored users log in again.
     return hasClaims ? { schema: hasCoins ? 3 : 2, accounts, saves, campaigns, claims } : { schema: 1, accounts, saves };
   } catch (e) { await client.query('ROLLBACK'); throw e; }
   finally { client.release(); }
 }
 export async function restore(pool, data) {
-  if (![1, 2, 3, 4].includes(data.schema) || !Array.isArray(data.accounts) || !Array.isArray(data.saves) || data.accounts.length !== data.saves.length || (data.schema >= 2 && (!Array.isArray(data.campaigns) || !Array.isArray(data.claims)))) throw new Error('Invalid application backup');
+  if (![1, 2, 3, 4, 5].includes(data.schema) || !Array.isArray(data.accounts) || !Array.isArray(data.saves) || data.accounts.length !== data.saves.length || (data.schema >= 2 && (!Array.isArray(data.campaigns) || !Array.isArray(data.claims)))) throw new Error('Invalid application backup');
   if (data.schema >= 4 && !['friends','records','members'].every(k => Array.isArray(data[k]))) throw new Error('Invalid community backup');
   await migrate(pool);
   const client = await pool.connect();
@@ -61,7 +62,7 @@ export async function restore(pool, data) {
     }
     if (data.schema >= 4) {
       for (const f of data.friends) await client.query('INSERT INTO social_friends(a,b,requested_by,state,created_at) VALUES($1,$2,$3,$4,$5)', [f.a,f.b,f.requested_by,f.state,f.created_at]);
-      for (const r of data.records) await client.query('INSERT INTO survival_records(id,run_id,owner_id,mode,team_key,seconds,level,kills,recorded_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)', [r.id,r.run_id,r.owner_id,r.mode,r.team_key,r.seconds,r.level,r.kills,r.recorded_at]);
+      for (const r of data.records) await client.query('INSERT INTO survival_records(id,run_id,owner_id,mode,team_key,seconds,level,kills,recorded_at,arceus_damage) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [r.id,r.run_id,r.owner_id,r.mode,r.team_key,r.seconds,r.level,r.kills,r.recorded_at,data.schema >= 5 ? r.arceus_damage : 0]);
       for (const m of data.members) await client.query('INSERT INTO record_members(record_id,account_id,dex,shiny,seat) VALUES($1,$2,$3,$4,$5)', [m.record_id,m.account_id,m.dex,m.shiny,m.seat]);
     }
     await client.query('COMMIT');
