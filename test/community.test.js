@@ -140,8 +140,25 @@ test('WebSocket rejects missing sessions and foreign origins without accepting a
     const [,response] = await once(ws, 'unexpected-response'); assert.ok([401,403].includes(response.statusCode)); ws.terminate();
   }
 });
+test('damage ranking adds a new metric while old survival records and best times stay intact', async () => {
+  const a=await user('피해기록A'),b=await user('피해기록B');await link(a,b);
+  const finish=async(u,t,dmg)=>{const start=await req('/api/community/runs/start',u,{});now+=t*1000;const result=await req('/api/community/runs/finish',u,{id:start.data.id,t,lv:226,kills:15931,...(dmg===undefined?{}:{dmg})});assert.equal(result.status,200);return result;};
+  const old=await finish(a,2300);await finish(a,2200,100);await finish(a,2000,300);await finish(b,2100,200);
+  const time=(await req('/api/community/records?period=a',a)).data;
+  assert.equal(time.me.t,2300);assert.ok(time.rows.some(r=>r.id===old.data.id));
+  const damage=(await req('/api/community/records?period=a&metric=damage',a)).data;
+  const mine=damage.rows.find(r=>r.uids.includes(a.id)),other=damage.rows.find(r=>r.uids.includes(b.id));
+  assert.equal(mine.d,300);assert.equal(mine.t,2000);assert.equal(other.d,200);assert.ok(mine.pos<other.pos);assert.equal(damage.me.d,300);
+  const friends=(await req('/api/community/records?period=a&metric=damage&friends=1',a)).data;
+  assert.equal(friends.rows.length,2);
+  assert.equal((await req('/api/community/records?metric=not-a-metric',a)).status,400);
+  const start=await req('/api/community/runs/start',a,{});now+=2000000;
+  for(const dmg of [-1,1.5,10000000000001,'9'])assert.equal((await req('/api/community/runs/finish',a,{id:start.data.id,t:1900,lv:1,kills:0,dmg})).status,400);
+  assert.equal((await req('/api/community/runs/finish',a,{id:start.data.id,t:1900,lv:1,kills:0,dmg:1})).status,200);
+});
+
 test('community backup restores friendships and records while excluding live sessions and unfinished runs', async () => {
-  const data = await snapshot(pool); assert.equal(data.schema, 4); assert.ok(data.records.length > 0); assert.ok(data.friends.length > 0); assert.ok(!('runs' in data));
+  const data = await snapshot(pool); assert.equal(data.schema, 5); assert.ok(data.records.length > 0); assert.ok(data.friends.length > 0); assert.ok(!('runs' in data));
   const copyDb = await PGlite.create(), copy = adapter(copyDb);
   try {
     await restore(copy, data); assert.deepEqual(await snapshot(copy), data);
@@ -181,4 +198,24 @@ test('same-window reconnection preserves a battle; a different window ends the o
   await socket(a,randomUUID(),false);
   await waitMessage(wb,m=>m.type==='room' && m.closed);
   assert.equal((await req('/api/community',a)).data.room,null);
+});
+
+test('additive migration and an old schema-four backup preserve every existing save and record',async()=>{
+ const oldDb=await PGlite.create(),oldPool=adapter(oldDb);
+ try{
+  const {readFile}=await import('node:fs/promises');
+  for(const file of ['001-init.sql','002-notices.sql','003-notice-coins.sql','004-community.sql'])await oldPool.query(await readFile(new URL('../migrations/'+file,import.meta.url),'utf8'));
+  await oldPool.query("INSERT INTO accounts(id,name,name_key,password_hash) VALUES('legacy','기존트레이너','기존트레이너','hash')");
+  const save={coins:143000,tickets:{t1:4,t10:92},owned:{150:{from:'gacha'},1150:{from:'armored-event'}},partner:1150,bag:{mint:3},pstart:{1150:'psycho-rush'},pity:{1:69},led:{'server:kor-opening-20261023':{c:[150000,0],t10:[100,0]}}};
+  await oldPool.query("INSERT INTO saves(account_id,data,revision) VALUES('legacy',$1,42)",[JSON.stringify(save)]);
+  await oldPool.query("INSERT INTO survival_records(id,run_id,owner_id,mode,team_key,seconds,level,kills) VALUES('old-record','old-run','legacy','s','legacy',1823,226,15931)");
+  await oldPool.query("INSERT INTO record_members(record_id,account_id,dex,shiny,seat) VALUES('old-record','legacy',1150,false,0)");
+  const before=await snapshot(oldPool);assert.equal(before.schema,4);
+  await migrate(oldPool);const after=await snapshot(oldPool);assert.equal(after.schema,5);
+  const restoredShape={...after,schema:4,records:after.records.map(({arceus_damage,...r})=>r)};
+  // initializeNotices adds only campaign metadata; compare the data the update promises to preserve.
+  for(const k of ['accounts','saves','records','members'])assert.deepEqual(restoredShape[k],before[k],k);
+  await migrate(oldPool);assert.deepEqual(await snapshot(oldPool),after);
+  const copyDb=await PGlite.create();try{const copy=adapter(copyDb);await restore(copy,before);const copied=await snapshot(copy);assert.deepEqual(copied.saves,before.saves);assert.equal(Number(copied.records[0].arceus_damage),0);assert.equal(copied.records[0].id,'old-record');}finally{await copyDb.close();}
+ }finally{await oldDb.close();}
 });
