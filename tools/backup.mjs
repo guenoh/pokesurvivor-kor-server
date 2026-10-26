@@ -36,6 +36,8 @@ export async function snapshot(pool) {
     const hasCommunity = (await client.query("SELECT to_regclass('social_friends') AS present")).rows[0].present;
     const community = hasCommunity ? { friends: (await client.query('SELECT * FROM social_friends ORDER BY a,b')).rows, records: (await client.query('SELECT * FROM survival_records ORDER BY id')).rows, members: (await client.query('SELECT * FROM record_members ORDER BY record_id,seat')).rows } : null;
     const hasDamage = hasCommunity && (await client.query("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='survival_records' AND column_name='arceus_damage') AS present")).rows[0].present;
+    // pg returns bigint as text; the bounded metric fits exactly in JSON numbers and PGlite.
+    if (hasDamage) community.records = community.records.map(r => ({ ...r, arceus_damage: Number(r.arceus_damage) }));
     await client.query('COMMIT');
     if (community) return { schema: hasDamage ? 5 : 4, accounts, saves, campaigns, claims, ...community };
     // Session tokens are intentionally excluded. Restored users log in again.
