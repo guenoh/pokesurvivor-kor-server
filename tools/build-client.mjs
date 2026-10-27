@@ -12,6 +12,10 @@ const run = (command, args) => execFileSync(command, args, { cwd: client, stdio:
 run('git', ['init', '--quiet']);
 run('git', ['fetch', '--depth=1', source.repository, source.commit]);
 run('git', ['checkout', '--detach', 'FETCH_HEAD']);
+const config = JSON.parse(await fs.readFile(path.join(root, 'config/notices.json'), 'utf8'));
+const dbSource = await fs.readFile(path.join(client, 'js/core/db.js'), 'utf8');
+const startingCoins = dbSource.match(/\bconst START_COINS\s*=\s*(\d+)\s*;/);
+if (!startingCoins || Number(startingCoins[1]) !== config.newAccountCoins) throw new Error('Member-gift starting coins do not match the pinned original game');
 run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts', '--prod=false']);
 const tests = (await fs.readdir(path.join(client, 'tests'))).filter(name => name.endsWith('.test.cjs')).sort().map(name => `tests/${name}`);
 if (tests.length === 0) throw new Error('Pinned client has no tests');

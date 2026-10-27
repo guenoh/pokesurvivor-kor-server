@@ -39,7 +39,7 @@ test('PostgreSQL snapshot and encrypted restore preserve accounts, saves and rev
     const original = await snapshot(source);
     await restore(target, unseal(seal(original, pair.publicKey), pair.privateKey));
     assert.deepEqual(await snapshot(target), original);
-    assert.equal(original.schema, 5);
+    assert.equal(original.schema, 6);
     const claimed = await claimNotice(target, { id: 'test-id', name: '복구시험', created_at: new Date() }, 'kor-opening-20261023', 7);
     assert.equal(claimed.alreadyClaimed, true); assert.equal(claimed.save.tickets.t10, 100); assert.equal(claimed.save.coins, 150025);
     assert.equal(Number((await target.query('SELECT count(*) FROM sessions')).rows[0].count), 0);

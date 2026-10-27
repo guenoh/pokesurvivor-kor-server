@@ -25,7 +25,7 @@ before(async () => {
     pool = new pg.Pool({connectionString:process.env.DATABASE_URL,options:`-c search_path=${schema}`});
   } else { db = await PGlite.create(); pool = adapter(db); }
   await migrate(pool);
-  app = createApp({ pool, origin, secureCookies: false, authLimit: 500, clock: () => now, logger: { error() {} } });
+  app = createApp({ pool, origin, secureCookies: false, authLimit: 500, notices: { notices: [], support: {} }, clock: () => now, logger: { error() {} } });
   await new Promise(r => app.listen(0, '127.0.0.1', r)); base = `http://127.0.0.1:${app.address().port}`;
 });
 after(async () => { for (const ws of sockets) ws.terminate(); app.community.live.close(); app.closeAllConnections(); await new Promise(r => app.close(r)); if (db) await db.close(); else { await pool.end(); await admin.query(`DROP SCHEMA ${schema} CASCADE`); await admin.end(); } });
@@ -158,7 +158,7 @@ test('damage ranking adds a new metric while old survival records and best times
 });
 
 test('community backup restores friendships and records while excluding live sessions and unfinished runs', async () => {
-  const data = await snapshot(pool); assert.equal(data.schema, 5); assert.ok(data.records.length > 0); assert.ok(data.friends.length > 0); assert.ok(!('runs' in data));
+  const data = await snapshot(pool); assert.equal(data.schema, 6); assert.ok(data.records.length > 0); assert.ok(data.friends.length > 0); assert.ok(!('runs' in data));
   const copyDb = await PGlite.create(), copy = adapter(copyDb);
   try {
     await restore(copy, data); assert.deepEqual(await snapshot(copy), data);
@@ -211,7 +211,7 @@ test('additive migration and an old schema-four backup preserve every existing s
   await oldPool.query("INSERT INTO survival_records(id,run_id,owner_id,mode,team_key,seconds,level,kills) VALUES('old-record','old-run','legacy','s','legacy',1823,226,15931)");
   await oldPool.query("INSERT INTO record_members(record_id,account_id,dex,shiny,seat) VALUES('old-record','legacy',1150,false,0)");
   const before=await snapshot(oldPool);assert.equal(before.schema,4);
-  await migrate(oldPool);const after=await snapshot(oldPool);assert.equal(after.schema,5);
+  await migrate(oldPool);const after=await snapshot(oldPool);assert.equal(after.schema,6);
   const restoredShape={...after,schema:4,records:after.records.map(({arceus_damage,...r})=>r)};
   // initializeNotices adds only campaign metadata; compare the data the update promises to preserve.
   for(const k of ['accounts','saves','records','members'])assert.deepEqual(restoredShape[k],before[k],k);
