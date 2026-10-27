@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { hashPassword, verifyPassword, tokenHash } from './auth.js';
-import { listNotices, claimNotice, noticeConfig } from './notices.js';
+import { listNotices, claimNotice, noticeConfig, grantAutomaticRewards } from './notices.js';
 import { createCommunity } from './community.js';
 
 class HttpError extends Error {
@@ -49,6 +49,7 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
     return { ...result.rows[0], token: tokenHash(raw) };
   }
   async function openSession(res, account) {
+    await grantAutomaticRewards(pool, account, notices, clock());
     const token = randomBytes(32).toString('hex');
     await pool.query('DELETE FROM sessions WHERE expires_at<=now()');
     await pool.query('INSERT INTO sessions(token_hash,account_id,expires_at) VALUES($1,$2,$3)', [tokenHash(token), account.id, new Date(Date.now() + 7 * 86400_000)]);
@@ -117,6 +118,7 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
       if (!supported.includes(route)) fail(404, '찾을 수 없습니다.');
       const account = await session(req);
       if (route === 'GET /api/session' || route === 'GET /api/save') {
+        await grantAutomaticRewards(pool, account, notices, clock());
         const { rows } = await pool.query('SELECT data,revision FROM saves WHERE account_id=$1', [account.id]);
         return send(200, { user: { id: account.id, name: account.name }, save: rows[0].data, revision: rows[0].revision });
       }

@@ -10,7 +10,7 @@ before(async () => {
   const Driver = process.env.DATABASE_URL ? pg : newDb().adapters.createPg();
   pool = new Driver.Pool(process.env.DATABASE_URL ? { connectionString: process.env.DATABASE_URL } : {});
   await migrate(pool);
-  app = createApp({ pool, origin, secureCookies: false, authLimit: 100, logger: { error() {} } });
+  app = createApp({ pool, origin, secureCookies: false, authLimit: 100, notices: { notices: [], support: {} }, logger: { error() {} } });
   await new Promise((resolve, reject) => { app.once('error', reject); app.listen(0, '127.0.0.1', resolve); });
   base = `http://127.0.0.1:${app.address().port}`;
 });
