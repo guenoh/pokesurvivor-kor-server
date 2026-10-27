@@ -57,6 +57,21 @@ test('CSRF, credential validation, invalid payload and database health', async (
   assert.equal((await request('/api/save', { method: 'PUT', cookie: a.cookie, data: { save: {}, revision: -1 } })).status, 400);
 });
 
+test('a cookie changed by another tab cannot save one account over another at the same revision', async () => {
+  const suffix = Date.now().toString(36), password = 'same-revision-test';
+  const a = await request('/api/auth/register', { method: 'POST', data: { name: 'ownerA' + suffix, password } });
+  const b = await request('/api/auth/register', { method: 'POST', data: { name: 'ownerB' + suffix, password } });
+  assert.equal(a.status, 201); assert.equal(b.status, 201);
+  const rejected = await request('/api/save', { method: 'PUT', cookie: b.cookie,
+    data: { accountId: a.data.user.id, revision: 0, save: { coins: 999, owned: { 1150: {} } } } });
+  assert.equal(rejected.status, 403);
+  const untouched = await request('/api/save', { cookie: b.cookie });
+  assert.equal(untouched.data.revision, 0); assert.deepEqual(untouched.data.save, {});
+  const accepted = await request('/api/save', { method: 'PUT', cookie: a.cookie,
+    data: { accountId: a.data.user.id, revision: 0, save: { coins: 123 } } });
+  assert.equal(accepted.status, 200);
+});
+
 test('event companion and existing progress survive save, logout and a fresh login', async () => {
   const name='event'+Date.now().toString(36),password='event-test-password';
   const account=await request('/api/auth/register',{method:'POST',data:{name,password}});

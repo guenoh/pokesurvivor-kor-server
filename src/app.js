@@ -122,6 +122,7 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
       }
       if (route === 'PUT /api/save') {
         const data = await body(req);
+        if (data?.accountId !== undefined && data.accountId !== account.id) fail(403, '다른 창에서 로그인 계정이 바뀌었습니다. 현재 기기의 백업을 내보낸 뒤 다시 로그인해 주세요.');
         if (!Number.isSafeInteger(data?.revision) || data.revision < 0 || !data.save || typeof data.save !== 'object' || Array.isArray(data.save) || !validSave(data.save)) fail(400, '올바르지 않은 저장 데이터입니다.');
         const result = await pool.query('UPDATE saves SET data=$1,revision=revision+1,updated_at=now() WHERE account_id=$2 AND revision=$3 RETURNING revision', [JSON.stringify(data.save), account.id, data.revision]);
         if (!result.rows[0]) fail(409, '다른 기기에서 저장되었습니다. 현재 데이터를 백업한 뒤 다시 로그인해 주세요.');
