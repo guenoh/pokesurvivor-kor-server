@@ -29,11 +29,23 @@ export function createCommunity({ pool, origin, session, clock = Date.now, logge
     if (!integer(s.partner, 1, 2000) || !s.owned?.[s.partner]) fail(409, '먼저 함께할 포켓몬을 선택하고 저장해 주세요.');
     return { uid: account.id, name: account.name, dex: s.partner, shiny: !!s.partnerShiny && !!s.shiny?.[s.partner] };
   }
-  async function begin(account, mode, roster) {
-    const id = randomUUID();
-    await pool.query('DELETE FROM social_runs WHERE owner_id=$1 OR started_at<$2', [account.id, new Date(clock() - 24 * 3600000)]);
-    await pool.query('INSERT INTO social_runs(id,owner_id,mode,roster,started_at) VALUES($1,$2,$3,$4,$5)', [id, account.id, mode, JSON.stringify(roster), new Date(clock())]);
-    return id;
+  async function begin(account, mode, roster, requestKey = null) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const id = randomUUID();
+      // A timeout may hide a committed response. Keep its token and start time on
+      // every retry; the browser key identifies a request, never attests gameplay.
+      const inserted = await client.query('INSERT INTO social_runs(id,owner_id,mode,roster,started_at,request_key) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(owner_id,request_key) DO NOTHING RETURNING id', [id, account.id, mode, JSON.stringify(roster), new Date(clock()), requestKey]);
+      const run = inserted.rows[0] || (await client.query('SELECT id,finished,started_at FROM social_runs WHERE owner_id=$1 AND request_key=$2', [account.id, requestKey])).rows[0];
+      if (!run || run.finished || (run.started_at && clock() - +new Date(run.started_at) > 24 * 3600000)) fail(409, '이미 종료되었거나 만료된 탐험입니다. 새 탐험을 시작해 주세요.');
+      // Retain a small window so a late earlier request cannot invalidate a newer
+      // game. Completed durable survival_records are never deleted here.
+      await client.query('DELETE FROM social_runs WHERE started_at<$1', [new Date(clock() - 24 * 3600000)]);
+      await client.query('DELETE FROM social_runs WHERE owner_id=$1 AND id IN (SELECT id FROM social_runs WHERE owner_id=$1 ORDER BY started_at DESC,id OFFSET 16)', [account.id]);
+      await client.query('COMMIT'); return run.id;
+    } catch (e) { await client.query('ROLLBACK'); throw e; }
+    finally { client.release(); }
   }
   const live = createLive({ origin, session, serial, friends, accepted, member, begin, clock, logger });
   async function board(account, url) {
@@ -103,7 +115,11 @@ export function createCommunity({ pool, origin, session, clock = Date.now, logge
         return { ok: true, msg: path.endsWith('accept') ? '친구가 되었습니다!' : '친구 목록에서 삭제했습니다.' };
       }
       if (method === 'POST' && path.startsWith('/room/')) return live.command(account, path.slice(6), data || {});
-      if (method === 'POST' && path === '/runs/start') return { id: await begin(account, 's', [await member(account)]) };
+      if (method === 'POST' && path === '/runs/start') {
+        const key = data?.requestId ?? null;
+        if (key !== null && (typeof key !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(key))) fail(400, '탐험 시작 요청을 확인해 주세요.');
+        return { id: await begin(account, 's', [await member(account)], key) };
+      }
       if (method === 'POST' && path === '/runs/finish') {
         const damage = data?.dmg ?? 0;
         if (!integer(damage, 0, 10000000000000) || (damage > 0 && data?.t < 1800)) fail(400, '아르세우스 피해량을 확인해 주세요.');
@@ -113,7 +129,12 @@ export function createCommunity({ pool, origin, session, clock = Date.now, logge
           await client.query('BEGIN');
           const run = (await client.query('SELECT * FROM social_runs WHERE id=$1 AND owner_id=$2 FOR UPDATE', [data.id, account.id])).rows[0];
           if (!run || run.finished) fail(409, '이미 등록했거나 만료된 도전입니다.');
-          if (clock() - +new Date(run.started_at) > 24 * 3600000 || data.t > (clock() - +new Date(run.started_at)) / 1000 * 1.25 + 5) fail(400, '실제 플레이 시간과 기록이 맞지 않습니다.');
+          // Upstream seals allow delayed registration near the start of a game.
+          // Keep the first server timestamp; only the new retryable solo protocol
+          // receives the client's bounded 80 s registration window. Co-op and
+          // legacy clients keep their existing elapsed-time validation.
+          const startGrace = run.mode === 's' && run.request_key ? 80 : 0;
+          if (clock() - +new Date(run.started_at) > 24 * 3600000 || data.t > (clock() - +new Date(run.started_at)) / 1000 * 1.25 + 5 + startGrace) fail(400, '실제 플레이 시간과 기록이 맞지 않습니다.');
           const id = randomUUID(), team = run.roster;
           await client.query('INSERT INTO survival_records(id,run_id,owner_id,mode,team_key,seconds,level,kills,recorded_at,arceus_damage) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [id, run.id, account.id, run.mode, team.map(m => m.uid).sort().join(':'), data.t, data.lv, data.kills, new Date(clock()), damage]);
           for (let i = 0; i < team.length; i++) await client.query('INSERT INTO record_members(record_id,account_id,dex,shiny,seat) VALUES($1,$2,$3,$4,$5)', [id, team[i].uid, team[i].dex, team[i].shiny, i]);

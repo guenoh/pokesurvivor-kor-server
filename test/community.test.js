@@ -96,6 +96,30 @@ test('solo records require a server-started run, reject spoofed time, deduplicat
   assert.deepEqual((await req('/api/community/records?mode=s&period=a&dex=150', b)).data.rows, []);
   assert.deepEqual((await req('/api/community/records?mode=s&period=a&friends=1', a)).data.me, { pos: 1, t: 50 });
 });
+test('lost start responses retry the original server token without changing its time, roster or finished state',async()=>{
+  const a=await user('재시작확인A'),b=await user('재시작확인B'),requestId=randomUUID();
+  const first=await req('/api/community/runs/start',a,{requestId});assert.equal(first.status,200);
+  const before=(await pool.query('SELECT * FROM social_runs WHERE id=$1',[first.data.id])).rows[0];now+=7000;
+  const again=await req('/api/community/runs/start',a,{requestId});assert.equal(again.data.id,first.data.id);
+  assert.deepEqual((await pool.query('SELECT * FROM social_runs WHERE id=$1',[first.data.id])).rows[0],before);
+  const other=await req('/api/community/runs/start',b,{requestId});assert.equal(other.status,200);assert.notEqual(other.data.id,first.data.id);
+  const newer=await req('/api/community/runs/start',a,{requestId:randomUUID()});assert.notEqual(newer.data.id,first.data.id);
+  assert.equal((await req('/api/community/runs/start',a,{requestId})).data.id,first.data.id);
+  assert.ok((await pool.query('SELECT id FROM social_runs WHERE id=$1',[newer.data.id])).rows.length);
+  assert.equal((await req('/api/community/runs/finish',a,{id:first.data.id,t:5,lv:1,kills:0})).status,200);
+  assert.equal((await req('/api/community/runs/start',a,{requestId})).status,409);
+  assert.equal((await req('/api/community/runs/start',a,{requestId:'invalid'})).status,400);
+});
+
+test('retryable solo starts tolerate the bounded registration delay without backdating the server or accepting arbitrary times',async()=>{
+ const a=await user('등록지연시험');
+ const start=await req('/api/community/runs/start',a,{requestId:randomUUID()});now+=50000;
+ assert.equal((await req('/api/community/runs/finish',a,{id:start.data.id,t:9999,lv:1,kills:0})).status,400);
+ assert.equal((await req('/api/community/runs/finish',a,{id:start.data.id,t:120,lv:1,kills:0})).status,200);
+ const legacy=await req('/api/community/runs/start',a,{});now+=50000;
+ assert.equal((await req('/api/community/runs/finish',a,{id:legacy.data.id,t:120,lv:1,kills:0})).status,400);
+});
+
 test('four-player invite-only co-op validates host, capacity, ready status, frame sender and team records', async () => {
   const users = await Promise.all(['협동방장', '협동친구1', '협동친구2', '협동친구3', '협동친구4'].map(user));
   const [a,b,c,d,e] = users;
