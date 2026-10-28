@@ -1,4 +1,5 @@
 import { randomUUID, randomInt } from 'node:crypto';
+import { halloweenAt } from './event-calendar.js';
 import { WebSocketServer, WebSocket } from 'ws';
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const GRACE = 45000, INVITE_TTL = 180000;
@@ -126,7 +127,7 @@ export function createLive({ origin, session, serial, friends, accepted, member,
       const runId = await begin(account, 'g', roster);
       room.members = new Map(roster.map(m => [m.uid, m])); room.playing = true;
       emitRoom(room);
-      const cfg = { k: 'start', seed: randomInt(1000000), host: uid, members: roster };
+      const cfg = { k: 'start', seed: randomInt(1000000), host: uid, hw: halloweenAt(clock()), members: roster };
       for (const u of room.members.keys()) {
         const ws = sockets.get(u); if (ws) ws.playing = true;
         send(u, { type: 'start', cfg, runId: u === uid ? runId : null });
