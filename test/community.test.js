@@ -8,6 +8,7 @@ import WebSocket from 'ws';
 import { createApp } from '../src/app.js';
 import { migrate } from '../src/migrate.js';
 import { periodStart } from '../src/community.js';
+import { halloweenAt } from '../src/event-calendar.js';
 import { snapshot, restore } from '../tools/backup.mjs';
 function adapter(db) {
   let queue = Promise.resolve();
@@ -109,8 +110,8 @@ test('four-player invite-only co-op validates host, capacity, ready status, fram
   assert.equal((await cmd(a, 'start')).status, 409);
   wb.send(JSON.stringify({ type: 'presence', ready: true, playing: false })); await new Promise(r => setTimeout(r, 20));
   assert.equal((await cmd(a, 'start')).status, 200);
-  const start = await waitMessage(wa, m => m.type === 'start'); assert.equal(start.cfg.members.length, 4); assert.ok(start.runId);
-  assert.equal((await waitMessage(wb, m => m.type === 'start')).runId, null);
+  const start = await waitMessage(wa, m => m.type === 'start'); assert.equal(start.cfg.members.length, 4); assert.ok(start.runId); assert.equal(start.cfg.hw, halloweenAt(now));
+  const guestStart = await waitMessage(wb, m => m.type === 'start'); assert.equal(guestStart.runId, null); assert.equal(guestStart.cfg.hw, start.cfg.hw);
   assert.equal((await cmd(a, 'invite', { uid: e.id })).status, 409);
   wb.send(JSON.stringify({ type: 'frame', from: e.id, to: a.id, message: { k: 'f', p: [1,2], ev: [] } }));
   const frame = await waitMessage(wa, m => m.type === 'frame'); assert.equal(frame.from, b.id);
