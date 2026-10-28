@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createLive } from './live.js';
+import retired from './retired-content.cjs';
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const pair = (a, b) => [a, b].sort();
 const integer = (n, lo, hi) => Number.isSafeInteger(n) && n >= lo && n <= hi;
@@ -24,7 +25,7 @@ export function createCommunity({ pool, origin, session, clock = Date.now, logge
     return !!(await pool.query("SELECT a FROM social_friends WHERE a=$1 AND b=$2 AND state='accepted'", pair(a, b))).rows[0];
   }
   async function member(account) {
-    const s = (await pool.query('SELECT data FROM saves WHERE account_id=$1', [account.id])).rows[0]?.data || {};
+    const s = retired.normalize((await pool.query('SELECT data FROM saves WHERE account_id=$1', [account.id])).rows[0]?.data || {});
     if (!integer(s.partner, 1, 2000) || !s.owned?.[s.partner]) fail(409, '먼저 함께할 포켓몬을 선택하고 저장해 주세요.');
     return { uid: account.id, name: account.name, dex: s.partner, shiny: !!s.partnerShiny && !!s.shiny?.[s.partner] };
   }
@@ -42,19 +43,19 @@ export function createCommunity({ pool, origin, session, clock = Date.now, logge
     const dex = url.searchParams.get('dex') ? Number(url.searchParams.get('dex')) : null;
     if (!['time','damage'].includes(metric) || !['s', 'g'].includes(mode) || !['d', 'w', 'm', 'y', 'a'].includes(period) || (dex !== null && !integer(dex, 1, 2000))) fail(400, '기록 검색 조건을 확인해 주세요.');
     const circle = url.searchParams.get('friends') === '1' ? [account.id, ...(await friends(account.id)).filter(f => f.status === 'ok').map(f => f.uid)] : null;
-    const args = [mode, periodStart(period, clock()), dex, circle];
+    const args = [mode, periodStart(period, clock()), retired.recordDexes(dex), circle];
     const { rows } = await pool.query(`WITH best AS (
       SELECT r.*, row_number() OVER(PARTITION BY r.team_key ORDER BY r.${score} DESC,r.recorded_at,r.id) AS best_n
       FROM survival_records r WHERE r.mode=$1 AND r.recorded_at >= $2
       ${metric === 'damage' ? 'AND r.arceus_damage > 0' : ''}
-      AND ($3::integer IS NULL OR EXISTS(SELECT 1 FROM record_members m WHERE m.record_id=r.id AND m.dex=$3))
+      AND ($3::integer[] IS NULL OR EXISTS(SELECT 1 FROM record_members m WHERE m.record_id=r.id AND m.dex=ANY($3)))
       AND ($4::text[] IS NULL OR EXISTS(SELECT 1 FROM record_members m WHERE m.record_id=r.id AND m.account_id=ANY($4::text[])))
     ), ranked AS (
       SELECT *, row_number() OVER(ORDER BY ${score} DESC,recorded_at,id) AS position FROM best WHERE best_n=1
     ) SELECT r.id,r.seconds AS t,r.level AS lv,r.kills,r.arceus_damage,r.position,
       (SELECT jsonb_agg(jsonb_build_object('uid',a.id,'name',a.name,'dex',m.dex,'shiny',m.shiny) ORDER BY m.seat) FROM record_members m JOIN accounts a ON a.id=m.account_id WHERE m.record_id=r.id) AS members
       FROM ranked r WHERE r.position<=50 OR EXISTS(SELECT 1 FROM record_members m WHERE m.record_id=r.id AND m.account_id=$5) ORDER BY r.position`, [...args, account.id]);
-    const format = r => ({ id: r.id, t: r.t, lv: r.lv, kills: r.kills, d: Number(r.arceus_damage), uids: r.members.map(m => m.uid), names: r.members.map(m => m.name), dex: r.members.map(m => m.dex), shiny: r.members.map(m => m.shiny), pos: Number(r.position) });
+    const format = r => ({ id: r.id, t: r.t, lv: r.lv, kills: r.kills, d: Number(r.arceus_damage), uids: r.members.map(m => m.uid), names: r.members.map(m => m.name), dex: r.members.map(m => retired.displayDex(m.dex)), shiny: r.members.map(m => m.shiny), pos: Number(r.position) });
     const all = rows.map(format), mine = all.find(r => r.uids.includes(account.id));
     return { rows: all.filter(r => r.pos <= 50), me: mine ? { pos: mine.pos, t: mine.t, ...(metric === 'damage' ? {d:mine.d} : {}) } : null };
   }

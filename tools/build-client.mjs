@@ -12,6 +12,8 @@ const run = (command, args) => execFileSync(command, args, { cwd: client, stdio:
 run('git', ['init', '--quiet']);
 run('git', ['fetch', '--depth=1', source.repository, source.commit]);
 run('git', ['checkout', '--detach', 'FETCH_HEAD']);
+const compatibility = await fs.readFile(path.join(client, 'kor/retired-content.js'));
+if (!compatibility.equals(await fs.readFile(path.join(root, 'src/retired-content.cjs')))) throw new Error('Retired content compatibility must match the pinned client');
 const config = JSON.parse(await fs.readFile(path.join(root, 'config/notices.json'), 'utf8'));
 const dbSource = await fs.readFile(path.join(client, 'js/core/db.js'), 'utf8');
 const startingCoins = dbSource.match(/\bconst START_COINS\s*=\s*(\d+)\s*;/);

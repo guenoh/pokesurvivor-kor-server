@@ -34,7 +34,10 @@ export async function listNotices(pool, account, config = noticeConfig, now = Da
   return {
     serverNow: new Date(now).toISOString(),
     notices: config.notices.map(notice => {
-      if (!notice.reward) return { ...notice };
+      if (!notice.reward) {
+        const receipt = notice.retirement && memberGrants.find(c => c.notice_id === notice.id);
+        return { ...notice, ...(receipt ? { paragraphs: [...notice.paragraphs, `내 계정의 종료 보상: ${Number(receipt.coins).toLocaleString('ko-KR')}코인 지급 완료. 같은 계정에 다시 지급되지 않습니다.`] } : {}) };
+      }
       const receipt = (notice.reward.automatic ? memberGrants : claims).find(c => c.notice_id === notice.id);
       const remaining = remainingReward(notice, receipt);
       const claimed = !remaining.ticket1 && !remaining.ticket10 && !remaining.coins;
