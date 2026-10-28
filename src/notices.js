@@ -5,12 +5,12 @@ if (!Number.isSafeInteger(noticeConfig.newAccountCoins) || noticeConfig.newAccou
 for (const notice of noticeConfig.notices) {
   if (!/^[a-z0-9-]{1,60}$/.test(notice.id) || !Number.isSafeInteger(notice.version) || !Array.isArray(notice.paragraphs)) throw new Error('Invalid notice configuration');
   if (notice.reward) {
-    if (!['signup24h', 'event24h', 'members'].includes(notice.reward.window)) throw new Error('Invalid reward configuration');
+    if (!['signup24h', 'event24h', 'members', 'login24h'].includes(notice.reward.window)) throw new Error('Invalid reward configuration');
     for (const [key, limit] of [['ticket1', 10000], ['ticket10', 1000]]) if (notice.reward[key] !== undefined && (!Number.isSafeInteger(notice.reward[key]) || notice.reward[key] < 0 || notice.reward[key] > limit)) throw new Error('Invalid ticket reward');
     if (!(notice.reward.ticket1 > 0 || notice.reward.ticket10 > 0 || notice.reward.coins > 0)) throw new Error('Empty reward');
-    if (notice.reward.window === 'members' && (notice.reward.automatic !== true || notice.reward.ticket10)) throw new Error('Member gifts must be automatic single-ticket/coin rewards');
-    if (notice.reward.automatic && notice.reward.window !== 'members') throw new Error('Invalid automatic reward');
-    if (notice.reward.ticket1 && notice.reward.window !== 'members') throw new Error('Single-ticket gifts require member receipts');
+    if (['members','login24h'].includes(notice.reward.window) && (notice.reward.automatic !== true || notice.reward.ticket10)) throw new Error('Member gifts must be automatic single-ticket/coin rewards');
+    if (notice.reward.automatic && !['members','login24h'].includes(notice.reward.window)) throw new Error('Invalid automatic reward');
+    if (notice.reward.ticket1 && !['members','login24h'].includes(notice.reward.window)) throw new Error('Single-ticket gifts require member receipts');
   }
   if (notice.reward?.coins !== undefined && (!Number.isSafeInteger(notice.reward.coins) || notice.reward.coins < 0 || notice.reward.coins > 100000000)) throw new Error('Invalid coin reward');
 }
@@ -42,7 +42,8 @@ export async function listNotices(pool, account, config = noticeConfig, now = Da
       const remaining = remainingReward(notice, receipt);
       const claimed = !remaining.ticket1 && !remaining.ticket10 && !remaining.coins;
       const window = timing(notice, account, campaigns.find(c => c.id === notice.id), now);
-      return { ...notice, reward: { ...notice.reward, ...window, remaining, eligible: !claimed && window.eligible, claimed, partiallyClaimed: !!receipt && !claimed, needsLogin: !account, claimedAt: receipt?.claimed_at || receipt?.granted_at || null } };
+      const endedLoginEvent = notice.reward.window === 'login24h' && now >= Date.parse(window.expiresAt);
+      return { ...notice, ...(endedLoginEvent ? { autoOpen: false, priority: 20 } : {}), reward: { ...notice.reward, ...window, remaining, eligible: !claimed && window.eligible, claimed, partiallyClaimed: !!receipt && !claimed, needsLogin: !account, claimedAt: receipt?.claimed_at || receipt?.granted_at || null } };
     }),
     support: { ...config.support, url: config.support?.url && /^https:\/\//.test(config.support.url) ? config.support.url : null }
   };
@@ -75,7 +76,11 @@ export function grantTickets(original, notice, now, awarded = remainingReward(no
 export async function claimNotice(pool, account, noticeId, revision, config = noticeConfig, now = Date.now()) {
   const notice = config.notices.find(n => n.id === noticeId);
   if (!notice?.reward) fail(404, '받을 수 있는 선물이 없습니다.');
-  if (notice.reward.automatic) return grantMemberNotice(pool, account, notice, config, now);
+  if (notice.reward.automatic) {
+    const result = await grantMemberNotice(pool, account, notice, config, now);
+    if (result.expired && !result.alreadyClaimed) fail(410, '선물을 받을 수 있는 시간이 지났습니다.');
+    return result;
+  }
   if (!Number.isSafeInteger(revision) || revision < 0) fail(400, '저장 내용을 먼저 동기화해 주세요.');
   const client = await pool.connect();
   try {
@@ -104,7 +109,7 @@ export async function claimNotice(pool, account, noticeId, revision, config = no
 }
 
 export async function grantMemberNotice(pool, account, notice, config = noticeConfig, now = Date.now()) {
-  if (notice.reward?.automatic !== true || notice.reward.window !== 'members') fail(400, '자동 지급 선물이 아닙니다.');
+  if (notice.reward?.automatic !== true || !['members','login24h'].includes(notice.reward.window)) fail(400, '자동 지급 선물이 아닙니다.');
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -115,7 +120,11 @@ export async function grantMemberNotice(pool, account, notice, config = noticeCo
     // Old-format backups may contain the credited ledger without the new receipt table.
     // Never pay the same earned amount again, even if it has since been spent.
     const paid = { ticket1: Math.max(amount(Number(receipt?.ticket1)), amount(ledger?.t1?.[0])), coins: Math.max(amount(Number(receipt?.coins)), amount(ledger?.c?.[0])) };
-    const awarded = remainingReward(notice, paid);
+    const remaining = remainingReward(notice, paid);
+    const campaign = notice.reward.window === 'login24h'
+      ? (await client.query('SELECT id,started_at FROM notice_campaigns WHERE id=$1', [notice.id])).rows[0] : null;
+    const eligible = timing(notice, account, campaign, now).eligible;
+    const awarded = eligible ? remaining : { ticket1: 0, ticket10: 0, coins: 0 };
     const granted = !!(awarded.ticket1 || awarded.coins);
     let save = saved.data, revision = saved.revision;
     if (granted) {
@@ -127,9 +136,12 @@ export async function grantMemberNotice(pool, account, notice, config = noticeCo
       if (!updated.rows[0]) fail(409, '저장 내용이 변경되었습니다. 다시 확인해 주세요.');
       revision = updated.rows[0].revision;
     }
-    await client.query('INSERT INTO member_grants(account_id,notice_id,ticket1,coins) VALUES($1,$2,$3,$4) ON CONFLICT(account_id,notice_id) DO UPDATE SET ticket1=excluded.ticket1,coins=excluded.coins', [account.id, notice.id, paid.ticket1 + (awarded.ticket1 || 0), paid.coins + awarded.coins]);
+    // Ineligible/offline accounts never acquire a receipt. Already-paid ledgers
+    // can still repair an older backup's missing receipt after the event ends.
+    if (granted || ((!receipt || Number(receipt.ticket1) !== paid.ticket1 || Number(receipt.coins) !== paid.coins) && (paid.ticket1 || paid.coins)))
+      await client.query('INSERT INTO member_grants(account_id,notice_id,ticket1,coins) VALUES($1,$2,$3,$4) ON CONFLICT(account_id,notice_id) DO UPDATE SET ticket1=excluded.ticket1,coins=excluded.coins', [account.id, notice.id, paid.ticket1 + (awarded.ticket1 || 0), paid.coins + awarded.coins]);
     await client.query('COMMIT');
-    return { user: { id: account.id, name: account.name }, save, revision, granted, alreadyClaimed: !granted, awarded };
+    return { user: { id: account.id, name: account.name }, save, revision, granted, alreadyClaimed: !(remaining.ticket1 || remaining.coins), expired: !eligible, awarded };
   } catch (error) { await client.query('ROLLBACK'); throw error; }
   finally { client.release(); }
 }
@@ -143,6 +155,8 @@ export async function grantAutomaticRewards(pool, account, config = noticeConfig
 export async function grantAllMembers(pool, config = noticeConfig, now = Date.now()) {
   const members = (await pool.query('SELECT id,name FROM accounts ORDER BY id')).rows;
   let grants = 0;
-  for (const account of members) for (const result of await grantAutomaticRewards(pool, account, config, now)) if (result.granted) grants++;
+  // Login events must never be paid to every stored account at startup.
+  for (const account of members) for (const notice of config.notices.filter(n => n.reward?.automatic && n.reward.window === 'members'))
+    if ((await grantMemberNotice(pool, account, notice, config, now)).granted) grants++;
   return { members: members.length, grants };
 }

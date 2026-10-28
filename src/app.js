@@ -33,6 +33,7 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
   if (!origin || new URL(origin).origin !== origin) throw new Error('APP_ORIGIN must be one exact origin without a trailing slash');
   const cookieName = secureCookies ? '__Host-pskor' : 'pskor_dev';
   const buckets = new Map();
+  const loginGifts = { ...notices, notices: notices.notices.filter(n => n.reward?.window === 'login24h') };
   const cookie = (value, maxAge) => `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secureCookies ? '; Secure' : ''}`;
   function rateLimit(req) {
     // Deliberately ignore client-supplied X-Forwarded-For. Edge proxy should add its own per-IP limits.
@@ -47,6 +48,8 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
     if (!raw || !/^[a-f0-9]{64}$/.test(raw)) fail(401, '로그인이 필요합니다.');
     const result = await pool.query('SELECT a.id, a.name, a.password_hash, a.created_at FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>now()', [tokenHash(raw)]);
     if (!result.rows[0]) fail(401, '다시 로그인해 주세요.');
+    // Includes already-open sessions and the existing live connection's auth heartbeat.
+    await grantAutomaticRewards(pool, result.rows[0], loginGifts, clock());
     return { ...result.rows[0], token: tokenHash(raw) };
   }
   async function openSession(res, account) {
