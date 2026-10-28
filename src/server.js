@@ -3,6 +3,7 @@ import { createApp } from './app.js';
 import { attachGame } from './static.js';
 import { migrate } from './migrate.js';
 import { grantAllMembers } from './notices.js';
+import { retireAllAccounts } from './retirement.js';
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 5, connectionTimeoutMillis: 15000, idleTimeoutMillis: 10000 });
 pool.on('error', error => console.error('Idle database connection failed', { code: error.code || 'internal' }));
@@ -12,6 +13,7 @@ if (production && !origin.startsWith('https://')) throw new Error('Production AP
 const app = createApp({ pool, origin, secureCookies: production });
 if (process.env.MIGRATE_ON_START === 'true') await migrate(pool);
 console.log('Member gifts checked', await grantAllMembers(pool));
+console.log('Custom content retirement checked', await retireAllAccounts(pool));
 if (process.env.STATIC_ROOT) await attachGame(app, process.env.STATIC_ROOT);
 app.listen(Number(process.env.PORT || 3000), '0.0.0.0');
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {

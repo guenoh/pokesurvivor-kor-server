@@ -3,6 +3,7 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { hashPassword, verifyPassword, tokenHash } from './auth.js';
 import { listNotices, claimNotice, noticeConfig, grantAutomaticRewards } from './notices.js';
 import { createCommunity } from './community.js';
+import retired from './retired-content.cjs';
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -55,7 +56,7 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
     await pool.query('INSERT INTO sessions(token_hash,account_id,expires_at) VALUES($1,$2,$3)', [tokenHash(token), account.id, new Date(Date.now() + 7 * 86400_000)]);
     res.setHeader('Set-Cookie', cookie(token, 7 * 86400));
     const { rows } = await pool.query('SELECT data,revision FROM saves WHERE account_id=$1', [account.id]);
-    return { user: { id: account.id, name: account.name }, save: rows[0].data, revision: rows[0].revision };
+    return { user: { id: account.id, name: account.name }, save: retired.normalize(rows[0].data), revision: rows[0].revision };
   }
   const community = createCommunity({ pool, origin, session, clock, logger });
   const app = http.createServer({ requestTimeout: 30_000, headersTimeout: 15_000 }, async (req, res) => {
@@ -120,13 +121,13 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
       if (route === 'GET /api/session' || route === 'GET /api/save') {
         await grantAutomaticRewards(pool, account, notices, clock());
         const { rows } = await pool.query('SELECT data,revision FROM saves WHERE account_id=$1', [account.id]);
-        return send(200, { user: { id: account.id, name: account.name }, save: rows[0].data, revision: rows[0].revision });
+        return send(200, { user: { id: account.id, name: account.name }, save: retired.normalize(rows[0].data), revision: rows[0].revision });
       }
       if (route === 'PUT /api/save') {
         const data = await body(req);
         if (data?.accountId !== undefined && data.accountId !== account.id) fail(403, '다른 창에서 로그인 계정이 바뀌었습니다. 현재 기기의 백업을 내보낸 뒤 다시 로그인해 주세요.');
         if (!Number.isSafeInteger(data?.revision) || data.revision < 0 || !data.save || typeof data.save !== 'object' || Array.isArray(data.save) || !validSave(data.save)) fail(400, '올바르지 않은 저장 데이터입니다.');
-        const result = await pool.query('UPDATE saves SET data=$1,revision=revision+1,updated_at=now() WHERE account_id=$2 AND revision=$3 RETURNING revision', [JSON.stringify(data.save), account.id, data.revision]);
+        const result = await pool.query('UPDATE saves SET data=$1,revision=revision+1,updated_at=now() WHERE account_id=$2 AND revision=$3 RETURNING revision', [JSON.stringify(retired.normalize(data.save)), account.id, data.revision]);
         if (!result.rows[0]) fail(409, '다른 기기에서 저장되었습니다. 현재 데이터를 백업한 뒤 다시 로그인해 주세요.');
         return send(200, { revision: result.rows[0].revision });
       }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import pg from 'pg';
 import { newDb } from 'pg-mem';
 import { createApp } from '../src/app.js';
+import retired from '../src/retired-content.cjs';
 import { migrate } from '../src/migrate.js';
 let pool, app, base;
 const origin = 'http://localhost:8080';
@@ -72,7 +73,7 @@ test('a cookie changed by another tab cannot save one account over another at th
   assert.equal(accepted.status, 200);
 });
 
-test('event companion and existing progress survive save, logout and a fresh login', async () => {
+test('retired companion references are removed while normal progress survives fresh login', async () => {
   const name='event'+Date.now().toString(36),password='event-test-password';
   const account=await request('/api/auth/register',{method:'POST',data:{name,password}});
   assert.equal(account.status,201);
@@ -85,5 +86,5 @@ test('event companion and existing progress survive save, logout and a fresh log
   const signed=await request('/api/auth/login',{method:'POST',data:{name,password}});
   assert.equal(signed.status,200);
   const restored=await request('/api/session',{cookie:signed.cookie});
-  assert.deepEqual(restored.data.save,save);assert.equal(restored.data.revision,1);
+  assert.deepEqual(restored.data.save,retired.normalize(save));assert.equal(restored.data.revision,1);
 });
