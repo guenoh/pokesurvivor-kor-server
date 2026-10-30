@@ -3,6 +3,7 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { hashPassword, verifyPassword, tokenHash } from './auth.js';
 import { listNotices, claimNotice, noticeConfig, grantAutomaticRewards } from './notices.js';
 import { createCommunity } from './community.js';
+import { draw, protectGrowth } from './gacha.js';
 import retired from './retired-content.cjs';
 
 class HttpError extends Error {
@@ -118,6 +119,13 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
         const data = ['POST', 'PUT'].includes(req.method) ? await body(req) : undefined;
         return send(200, await community.handle(req, account, url, data));
       }
+      if (route === 'POST /api/gacha') {
+        const account = await session(req);
+        community.live.rate(account.id, 'gacha', 20, 60000);
+        const data = await body(req);
+        if (data?.accountId !== account.id) fail(403, '로그인 계정이 바뀌었습니다.');
+        return send(200, await draw(pool, account, data, clock()));
+      }
       const supported = ['GET /api/session', 'GET /api/save', 'PUT /api/save', 'POST /api/auth/logout', 'DELETE /api/account'];
       if (!supported.includes(route)) fail(404, '찾을 수 없습니다.');
       const account = await session(req);
@@ -130,9 +138,15 @@ export function createApp({ pool, origin, secureCookies = true, authLimit = 20, 
         const data = await body(req);
         if (data?.accountId !== undefined && data.accountId !== account.id) fail(403, '다른 창에서 로그인 계정이 바뀌었습니다. 현재 기기의 백업을 내보낸 뒤 다시 로그인해 주세요.');
         if (!Number.isSafeInteger(data?.revision) || data.revision < 0 || !data.save || typeof data.save !== 'object' || Array.isArray(data.save) || !validSave(data.save)) fail(400, '올바르지 않은 저장 데이터입니다.');
-        const result = await pool.query('UPDATE saves SET data=$1,revision=revision+1,updated_at=now() WHERE account_id=$2 AND revision=$3 RETURNING revision', [JSON.stringify(retired.normalize(data.save)), account.id, data.revision]);
-        if (!result.rows[0]) fail(409, '다른 기기에서 저장되었습니다. 현재 데이터를 백업한 뒤 다시 로그인해 주세요.');
-        return send(200, { revision: result.rows[0].revision });
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          const current = (await client.query('SELECT data,revision FROM saves WHERE account_id=$1 FOR UPDATE', [account.id])).rows[0];
+          if (!current || current.revision !== data.revision) fail(409, '다른 기기에서 저장되었습니다. 현재 데이터를 백업한 뒤 다시 로그인해 주세요.');
+          const result = await client.query('UPDATE saves SET data=$1,revision=revision+1,updated_at=now() WHERE account_id=$2 AND revision=$3 RETURNING revision', [JSON.stringify(protectGrowth(retired.normalize(data.save), current.data)), account.id, data.revision]);
+          if (!result.rows[0]) fail(409, '저장 내용이 변경되었습니다.');
+          await client.query('COMMIT'); return send(200, { revision: result.rows[0].revision });
+        } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
       }
       if (route === 'DELETE /api/account') {
         const data = await body(req);

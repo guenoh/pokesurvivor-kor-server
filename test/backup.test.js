@@ -36,10 +36,11 @@ test('PostgreSQL snapshot and encrypted restore preserve accounts, saves and rev
     await source.query("INSERT INTO saves(account_id,data,revision) VALUES('test-id',$1,7)", [JSON.stringify({ coins: 150025, tickets: { t1: 0, t10: 100 }, led: { base: { c: [25, 0], t1: [0, 0], t10: [0, 0] }, 'server:kor-opening-20261023': { t10: [100, 0], c: [150000, 0] } }, owned: { 25: { from: 'starter' } } })]);
     await source.query("INSERT INTO sessions(token_hash,account_id,expires_at) VALUES('test-token','test-id',now()+interval '1 day')");
     await source.query("INSERT INTO notice_claims(account_id,notice_id,ticket10,coins) VALUES('test-id','kor-opening-20261023',100,150000)");
+    await source.query("INSERT INTO gacha_receipts(account_id,request_id,n,gen,ticket_kind,results,iris) VALUES('test-id','backup-draw',10,1,'t1',$1,0)", [JSON.stringify([{dex:25,rarity:2,growth:{duplicate:true,count:2,rank:1,unlocked:['hp']}}])]);
     const original = await snapshot(source);
     await restore(target, unseal(seal(original, pair.publicKey), pair.privateKey));
     assert.deepEqual(await snapshot(target), original);
-    assert.equal(original.schema, 6);
+    assert.equal(original.schema, 7);
     const claimed = await claimNotice(target, { id: 'test-id', name: '복구시험', created_at: new Date() }, 'kor-opening-20261023', 7);
     assert.equal(claimed.alreadyClaimed, true); assert.equal(claimed.save.tickets.t10, 100); assert.equal(claimed.save.coins, 150025);
     assert.equal(Number((await target.query('SELECT count(*) FROM sessions')).rows[0].count), 0);

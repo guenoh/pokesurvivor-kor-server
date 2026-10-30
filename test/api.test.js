@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
+import { randomUUID } from 'node:crypto';
 import { newDb } from 'pg-mem';
 import { createApp } from '../src/app.js';
 import retired from '../src/retired-content.cjs';
@@ -87,4 +88,19 @@ test('retired companion references are removed while normal progress survives fr
   assert.equal(signed.status,200);
   const restored=await request('/api/session',{cookie:signed.cookie});
   assert.deepEqual(restored.data.save,retired.normalize(save));assert.equal(restored.data.revision,1);
+});
+
+
+test('authenticated gacha API keeps growth authoritative and replays a receipt without charging twice', async()=>{
+ const a=await request('/api/auth/register',{method:'POST',data:{name:'성장'+Date.now().toString(36),password:'1234'}});
+ const initial={coins:100,tickets:{t1:100,t10:2},owned:{150:{at:1}},stats:{pulls:0}};
+ assert.equal((await request('/api/save',{method:'PUT',cookie:a.cookie,data:{save:initial,revision:0}})).status,200);
+ const d={requestId:randomUUID(),n:10,gen:1,use:'t1',revision:1,accountId:a.data.user.id};
+ assert.equal((await request('/api/gacha',{method:'POST',data:d})).status,401);
+ assert.equal((await request('/api/gacha',{method:'POST',cookie:a.cookie,data:{...d,accountId:'other'}})).status,403);
+ const out=await request('/api/gacha',{method:'POST',cookie:a.cookie,data:d});assert.equal(out.status,200);assert.equal(out.data.save.tickets.t1,90);assert.equal(out.data.results.length,10);
+ const again=await request('/api/gacha',{method:'POST',cookie:a.cookie,data:d});assert.equal(again.status,200);assert.equal(again.data.replayed,true);assert.equal(again.data.revision,out.data.revision);assert.deepEqual(again.data.results,out.data.results);
+ const forged=structuredClone(out.data.save);forged.korGrowth={v:1,counts:{150:999999}};
+ assert.equal((await request('/api/save',{method:'PUT',cookie:a.cookie,data:{save:forged,revision:out.data.revision}})).status,200);
+ const actual=await request('/api/session',{cookie:a.cookie});assert.deepEqual(actual.data.save.korGrowth,out.data.save.korGrowth);assert.equal(actual.data.save.tickets.t1,90);
 });

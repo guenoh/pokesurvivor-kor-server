@@ -72,3 +72,9 @@ APP_ORIGIN=http://localhost:8080 node src/server.js
 `POST /api/community/runs/start`의 선택적 `requestId`(UUID v4)는 같은 계정의 동일 시작 요청을 식별합니다. 서버가 만든 최초 토큰·시작 시각·참가 포켓몬을 그대로 반환하며, 완료된 요청은 다시 시작하지 않습니다. 마이그레이션 007은 임시 `social_runs.request_key`와 고유 인덱스만 추가합니다. 임시 토큰은 계정당 최근 16개와 24시간까지 유지하고 완료 기록·게임 저장·친구·보상 영수증은 변경하지 않습니다. 구 클라이언트의 빈 시작 요청도 지원합니다. 진행 중 토큰은 기존처럼 백업 대상에서 제외됩니다. 원작의 늦은 시작 인증 허용 의도를 따라 새 재시도 프로토콜의 단독 탐험에만 등록 지연 최대 80초를 허용하며, 최초 서버 시작 시각을 되돌리지 않습니다. 기존 클라이언트·협동의 시간 검증은 유지합니다. 전투 자체가 서버 권위 방식인 것은 아닙니다.
 
 서버에서 느린 수신자에게 보내는 구간의 적체 제어 확대는 이번 변경에서 제외했습니다. 원작 종료 이벤트의 전송 대기 처리까지 별도 검증해야 합니다. 근거·원작 서버 파일 이력은 클라이언트의 [호환 리뷰](https://github.com/guenoh/pokesurvivor-kor/blob/main/kor/UPSTREAM.md)에 기록합니다.
+
+### Duplicate growth (Korean edition)
+
+The server uses the preserved original draw engine and a generated catalogue from the pinned client. `tools/build-client.mjs` rejects a mismatched engine, catalogue or shared growth policy. Authenticated 10/100 draws use `/api/gacha`: one save-row transaction records the ticket debit, original refund, per-species growth, and an idempotent receipt. The original rates, pity and shiny rules remain intact. The browser retains the request ID until the result is confirmed; reopening the draw screen replays an interrupted request.
+
+Growth starts with post-update duplicate acquisitions, shares normal/shiny progress and automatically applies five small bonuses. Existing coin upgrades and member gifts are untouched. Normal save uploads cannot replace server growth or forge/erase server draw-ledger entries. Migration 008 is additive; encrypted backup schema 7 includes draw receipts and retains support for schema 1–6 restores. Do not remove receipts while a browser may still retry an unconfirmed draw.

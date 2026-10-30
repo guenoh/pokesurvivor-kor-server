@@ -35,28 +35,31 @@ export async function snapshot(pool) {
     const claims = hasClaims ? (await client.query(`SELECT account_id,notice_id,ticket10,claimed_at${hasCoins ? ',coins' : ''} FROM notice_claims ORDER BY account_id,notice_id`)).rows : [];
     const hasMemberGrants = (await client.query("SELECT to_regclass('member_grants') AS present")).rows[0].present;
     const memberGrants = hasMemberGrants ? (await client.query('SELECT account_id,notice_id,ticket1,coins,granted_at FROM member_grants ORDER BY account_id,notice_id')).rows : [];
+    const hasGacha = (await client.query("SELECT to_regclass('gacha_receipts') AS present")).rows[0].present;
+    const gachaReceipts = hasGacha ? (await client.query('SELECT * FROM gacha_receipts ORDER BY account_id,request_id')).rows : [];
     const hasCommunity = (await client.query("SELECT to_regclass('social_friends') AS present")).rows[0].present;
     const community = hasCommunity ? { friends: (await client.query('SELECT * FROM social_friends ORDER BY a,b')).rows, records: (await client.query('SELECT * FROM survival_records ORDER BY id')).rows, members: (await client.query('SELECT * FROM record_members ORDER BY record_id,seat')).rows } : null;
     const hasDamage = hasCommunity && (await client.query("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='survival_records' AND column_name='arceus_damage') AS present")).rows[0].present;
     // pg returns bigint as text; the bounded metric fits exactly in JSON numbers and PGlite.
     if (hasDamage) community.records = community.records.map(r => ({ ...r, arceus_damage: Number(r.arceus_damage) }));
     await client.query('COMMIT');
-    if (community) return { schema: hasMemberGrants ? 6 : hasDamage ? 5 : 4, accounts, saves, campaigns, claims, ...community, ...(hasMemberGrants ? { memberGrants } : {}) };
+    if (community) return { schema: hasGacha ? 7 : hasMemberGrants ? 6 : hasDamage ? 5 : 4, accounts, saves, campaigns, claims, ...community, ...(hasMemberGrants ? { memberGrants } : {}), ...(hasGacha ? { gachaReceipts } : {}) };
     // Session tokens are intentionally excluded. Restored users log in again.
     return hasClaims ? { schema: hasCoins ? 3 : 2, accounts, saves, campaigns, claims } : { schema: 1, accounts, saves };
   } catch (e) { await client.query('ROLLBACK'); throw e; }
   finally { client.release(); }
 }
 export async function restore(pool, data) {
-  if (![1, 2, 3, 4, 5, 6].includes(data.schema) || !Array.isArray(data.accounts) || !Array.isArray(data.saves) || data.accounts.length !== data.saves.length || (data.schema >= 2 && (!Array.isArray(data.campaigns) || !Array.isArray(data.claims)))) throw new Error('Invalid application backup');
+  if (![1, 2, 3, 4, 5, 6, 7].includes(data.schema) || !Array.isArray(data.accounts) || !Array.isArray(data.saves) || data.accounts.length !== data.saves.length || (data.schema >= 2 && (!Array.isArray(data.campaigns) || !Array.isArray(data.claims)))) throw new Error('Invalid application backup');
   if (data.schema >= 4 && !['friends','records','members'].every(k => Array.isArray(data[k]))) throw new Error('Invalid community backup');
   if (data.schema >= 6 && !Array.isArray(data.memberGrants)) throw new Error('Invalid member-gift backup');
+  if (data.schema >= 7 && !Array.isArray(data.gachaReceipts)) throw new Error('Invalid gacha backup');
   await migrate(pool);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('LOCK TABLE accounts, saves, sessions, notice_campaigns, notice_claims, member_grants, social_friends, social_runs, survival_records, record_members IN ACCESS EXCLUSIVE MODE');
-    for (const table of ['accounts', 'saves', 'sessions', 'notice_claims', 'member_grants', 'social_friends', 'social_runs', 'survival_records', 'record_members']) {
+    await client.query('LOCK TABLE accounts, saves, sessions, notice_campaigns, notice_claims, member_grants, social_friends, social_runs, survival_records, record_members, gacha_receipts IN ACCESS EXCLUSIVE MODE');
+    for (const table of ['accounts', 'saves', 'sessions', 'notice_claims', 'member_grants', 'social_friends', 'social_runs', 'survival_records', 'record_members', 'gacha_receipts']) {
       if (Number((await client.query(`SELECT count(*) AS count FROM ${table}`)).rows[0].count) !== 0) throw new Error('Restore requires an empty database; existing data will not be overwritten');
     }
     for (const a of data.accounts) await client.query('INSERT INTO accounts(id,name,name_key,password_hash,created_at) VALUES($1,$2,$3,$4,$5)', [a.id, a.name, a.name_key, a.password_hash, a.created_at]);
@@ -66,6 +69,7 @@ export async function restore(pool, data) {
       for (const c of data.claims) await client.query('INSERT INTO notice_claims(account_id,notice_id,ticket10,claimed_at,coins) VALUES($1,$2,$3,$4,$5)', [c.account_id, c.notice_id, c.ticket10, c.claimed_at, data.schema >= 3 ? c.coins : 0]);
     }
     if (data.schema >= 6) for (const receipt of data.memberGrants) await client.query('INSERT INTO member_grants(account_id,notice_id,ticket1,coins,granted_at) VALUES($1,$2,$3,$4,$5)', [receipt.account_id, receipt.notice_id, receipt.ticket1, receipt.coins, receipt.granted_at]);
+    if (data.schema >= 7) for (const r of data.gachaReceipts) await client.query('INSERT INTO gacha_receipts(account_id,request_id,n,gen,ticket_kind,results,iris,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [r.account_id,r.request_id,r.n,r.gen,r.ticket_kind,JSON.stringify(r.results),r.iris,r.created_at]);
     if (data.schema >= 4) {
       for (const f of data.friends) await client.query('INSERT INTO social_friends(a,b,requested_by,state,created_at) VALUES($1,$2,$3,$4,$5)', [f.a,f.b,f.requested_by,f.state,f.created_at]);
       for (const r of data.records) await client.query('INSERT INTO survival_records(id,run_id,owner_id,mode,team_key,seconds,level,kills,recorded_at,arceus_damage) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [r.id,r.run_id,r.owner_id,r.mode,r.team_key,r.seconds,r.level,r.kills,r.recorded_at,data.schema >= 5 ? r.arceus_damage : 0]);
