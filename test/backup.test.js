@@ -33,7 +33,7 @@ test('PostgreSQL snapshot and encrypted restore preserve accounts, saves and rev
   try {
     await migrate(source);
     await source.query("INSERT INTO accounts(id,name,name_key,password_hash) VALUES('test-id','복구시험','복구시험','password-hash')");
-    await source.query("INSERT INTO saves(account_id,data,revision) VALUES('test-id',$1,7)", [JSON.stringify({ coins: 150025, tickets: { t1: 0, t10: 100 }, led: { base: { c: [25, 0], t1: [0, 0], t10: [0, 0] }, 'server:kor-opening-20261023': { t10: [100, 0], c: [150000, 0] } }, owned: { 25: { from: 'starter' } } })]);
+    await source.query("INSERT INTO saves(account_id,data,revision) VALUES('test-id',$1,7)", [JSON.stringify({ coins: 150025, tickets: { t1: 0, t10: 100 }, led: { base: { c: [25, 0], t1: [0, 0], t10: [0, 0] }, 'server:kor-opening-20261023': { t10: [100, 0], c: [150000, 0] } }, owned: { 25: { from: 'starter' } }, korGrowth: { v: 1, counts: { 25: 2 } } })]);
     await source.query("INSERT INTO sessions(token_hash,account_id,expires_at) VALUES('test-token','test-id',now()+interval '1 day')");
     await source.query("INSERT INTO notice_claims(account_id,notice_id,ticket10,coins) VALUES('test-id','kor-opening-20261023',100,150000)");
     await source.query("INSERT INTO gacha_receipts(account_id,request_id,n,gen,ticket_kind,results,iris) VALUES('test-id','backup-draw',10,1,'t1',$1,0)", [JSON.stringify([{dex:25,rarity:2,growth:{duplicate:true,count:2,rank:1,unlocked:['hp']}}])]);
