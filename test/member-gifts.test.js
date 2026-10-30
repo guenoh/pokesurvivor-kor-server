@@ -83,16 +83,18 @@ test('a credited ledger from an old-format backup repairs the receipt without re
   assert.equal((await listNotices(pool, a, config)).notices[0].reward.claimed, true);
 });
 test('PostgreSQL backup restores gift receipts and schema-five backups do not duplicate the credited ledger', { skip: !process.env.DATABASE_URL }, async () => {
-  await grantAllMembers(pool, config); const original = await snapshot(pool); assert.equal(original.schema, 6);
+  await grantAllMembers(pool, config); const original = await snapshot(pool); assert.equal(original.schema, 7);
   assert.ok(original.memberGrants.length > 0);
-  for (const legacy of [false, true]) {
+  for (const format of [7, 6, 5]) {
     const targetSchema = 'gift_restore_' + randomUUID().replaceAll('-', ''); await admin.query(`CREATE SCHEMA ${targetSchema}`);
     const target = new pg.Pool({ connectionString: process.env.DATABASE_URL, options: `-c search_path=${targetSchema}` });
     try {
-      const data = structuredClone(original); if (legacy) { data.schema = 5; delete data.memberGrants; }
+      const data = structuredClone(original); data.schema = format;
+      if (format < 7) delete data.gachaReceipts;
+      if (format < 6) delete data.memberGrants;
       await restore(target, data); assert.equal((await grantAllMembers(target, config)).grants, 0);
       const restored = await snapshot(target); assert.deepEqual(restored.saves, original.saves); assert.equal(restored.memberGrants.length, original.memberGrants.length);
-      if (!legacy) assert.deepEqual(restored.memberGrants, original.memberGrants);
+      if (format >= 6) assert.deepEqual(restored.memberGrants, original.memberGrants);
     } finally { await target.end(); await admin.query(`DROP SCHEMA ${targetSchema} CASCADE`); }
   }
 });
