@@ -6,6 +6,7 @@ RUN pnpm install --prod --frozen-lockfile --ignore-scripts
 COPY --chown=node:node src ./src
 COPY --chown=node:node migrations ./migrations
 COPY --chown=node:node config ./config
+COPY --chown=node:node data ./data
 USER node
 ENV NODE_ENV=production PORT=3000
 EXPOSE 3000

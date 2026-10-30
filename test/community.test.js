@@ -183,7 +183,7 @@ test('damage ranking adds a new metric while old survival records and best times
 });
 
 test('community backup restores friendships and records while excluding live sessions and unfinished runs', async () => {
-  const data = await snapshot(pool); assert.equal(data.schema, 6); assert.ok(data.records.length > 0); assert.ok(data.friends.length > 0); assert.ok(!('runs' in data));
+  const data = await snapshot(pool); assert.equal(data.schema, 7); assert.ok(data.records.length > 0); assert.ok(data.friends.length > 0); assert.ok(!('runs' in data));
   const copyDb = await PGlite.create(), copy = adapter(copyDb);
   try {
     await restore(copy, data); assert.deepEqual(await snapshot(copy), data);
@@ -236,7 +236,7 @@ test('additive migration and an old schema-four backup preserve every existing s
   await oldPool.query("INSERT INTO survival_records(id,run_id,owner_id,mode,team_key,seconds,level,kills) VALUES('old-record','old-run','legacy','s','legacy',1823,226,15931)");
   await oldPool.query("INSERT INTO record_members(record_id,account_id,dex,shiny,seat) VALUES('old-record','legacy',1150,false,0)");
   const before=await snapshot(oldPool);assert.equal(before.schema,4);
-  await migrate(oldPool);const after=await snapshot(oldPool);assert.equal(after.schema,6);
+  await migrate(oldPool);const after=await snapshot(oldPool);assert.equal(after.schema,7);
   const restoredShape={...after,schema:4,records:after.records.map(({arceus_damage,...r})=>r)};
   // initializeNotices adds only campaign metadata; compare the data the update promises to preserve.
   for(const k of ['accounts','saves','records','members'])assert.deepEqual(restoredShape[k],before[k],k);
