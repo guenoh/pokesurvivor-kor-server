@@ -78,3 +78,9 @@ APP_ORIGIN=http://localhost:8080 node src/server.js
 The server uses the preserved original draw engine and a generated catalogue from the pinned client. `tools/build-client.mjs` rejects a mismatched engine, catalogue or shared growth policy. Authenticated 10/100 draws use `/api/gacha`: one save-row transaction records the ticket debit, original refund, per-species growth, and an idempotent receipt. The original rates, pity and shiny rules remain intact. The browser retains the request ID until the result is confirmed; reopening the draw screen replays an interrupted request.
 
 Growth starts with post-update duplicate acquisitions, shares normal/shiny progress and automatically applies five small bonuses. Existing coin upgrades and member gifts are untouched. Normal save uploads cannot replace server growth or forge/erase server draw-ledger entries. Migration 008 is additive; encrypted backup schema 7 includes draw receipts and retains support for schema 1–6 restores. Do not remove receipts while a browser may still retry an unconfirmed draw.
+
+### 업데이트 내역과 이벤트 공지
+
+`config/notices.json`에서 새 기능·개선·버그 수정 글에는 `channel: "updates"`와 `publishedAt`을 지정합니다. 이 글은 기존 업데이트 창으로 전달되고 이벤트 팝업을 열지 않습니다. 과거 원작 기록은 `source: "upstream"`으로 표시해 접힌 기록에 보관합니다.
+
+이벤트·선물·투자 보상·운영 안내는 기본 공지 채널을 사용합니다. 기존 보상의 ID·금액·기간·지급 장부를 변경하거나 새 ID로 복제하지 않습니다. 클라이언트에 포함된 한국판 변경 내역은 `kor: true`와 같은 ID를 사용해 서버 안내와 중복 표시되지 않게 합니다.
