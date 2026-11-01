@@ -84,3 +84,5 @@ Growth starts with post-update duplicate acquisitions, shares normal/shiny progr
 `config/notices.json`에서 새 기능·개선·버그 수정 글에는 `channel: "updates"`와 `publishedAt`을 지정합니다. 이 글은 기존 업데이트 창으로 전달되고 이벤트 팝업을 열지 않습니다. 과거 원작 기록은 `source: "upstream"`으로 표시해 접힌 기록에 보관합니다.
 
 이벤트·선물·투자 보상·운영 안내는 기본 공지 채널을 사용합니다. 기존 보상의 ID·금액·기간·지급 장부를 변경하거나 새 ID로 복제하지 않습니다. 클라이언트에 포함된 한국판 변경 내역은 `kor: true`와 같은 ID를 사용해 서버 안내와 중복 표시되지 않게 합니다.
+
+메인 소식 배너에 노출할 공지는 `banner: { "icon": "book", "until": "2026-11-02T23:00:00.000Z" }`처럼 지정합니다. `until`은 선택 사항이며 UTC 시각을 사용합니다. 종료·접힌 공지는 제외하고 우선순위가 높은 공지 최대 두 건과 최신 한국판 업데이트를 보여 줍니다. 이 설정은 배너 표시만 제어하며 보상 수령 조건·기간에는 영향을 주지 않습니다.
