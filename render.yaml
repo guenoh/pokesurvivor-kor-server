@@ -1,9 +1,9 @@
-# No expiring Render database is provisioned. DATABASE_URL comes from Neon Free.
+# Always-on web compute requires billing approval. DATABASE_URL stays on Neon Free.
 services:
   - type: web
     name: pokesurvivor-kor
     runtime: node
-    plan: free
+    plan: 0.5c-512mb
     region: singapore
     branch: main
     autoDeployTrigger: off
