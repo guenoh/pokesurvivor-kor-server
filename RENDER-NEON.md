@@ -1,22 +1,40 @@
-# 무료 시험 운영: Render + Neon
+# Render + Neon 운영
 
-2026-10-23 공식 안내를 기준으로 Render Free 웹 서비스와 Neon Free PostgreSQL을 사용합니다. **30일 만료형 Render Postgres는 생성하지 않습니다.**
+초기 시험 운영은 Render Free 웹 서비스와 Neon Free PostgreSQL로 시작했습니다. 아래 상시 실행 전환은 운영자의 비용 승인을 받은 후 적용합니다. **30일 만료형 Render Postgres는 생성하지 않습니다.**
+
+## 상시 실행 전환 — 2026-11-02 검토
+
+대상은 기존 `pokesurvivor-kor` 웹 서비스 하나입니다. `render.yaml`의 `plan: 0.5c-512mb`는 0.5 CPU·512MB RAM이며, 관리 화면의 기본 요금은 **월 US$7**입니다. 세금·환율·전송량/빌드 등 포함량 초과 비용은 별도일 수 있습니다. Pro 워크스페이스나 추가 인스턴스는 필요하지 않습니다. 운영자의 금액 승인을 받기 전에는 이 설정을 main에 병합하거나 Render에서 Save하지 않습니다.
+
+이 유료 웹 서비스는 트래픽이 없어도 자동 휴면하지 않아, 첫 방문자에게 표시되던 Render 서버 깨우기 화면을 없앱니다. 코드 오류·서비스 장애·배포 중 재연결까지 전혀 없다는 보장은 아닙니다. Neon Free의 자동 일시 중지는 그대로이므로, 오래 쉬었던 DB의 첫 로그인/저장 요청에는 연결 준비 지연이 남을 수 있습니다.
+
+현재 게임 주소·서비스 ID·싱가포르 리전·저장소·클라이언트 고정 커밋·시크릿·Neon DB와 백업 키를 유지합니다. DB 이동이나 초기화, 새 서비스 생성은 하지 않습니다. 변경 절차:
+
+1. Render Compute에서 `Free → 0.5c-512mb (US$7/month)`를 검토하고 운영자의 비용 승인을 받습니다. 결제수단 입력이 필요한 경우 소유자가 직접 처리합니다.
+2. 최근 암호화 백업의 실제 backup 작업 성공과 현재 `/release.json`을 확인합니다.
+3. 승인한 Compute만 저장합니다. 잠깐 재시작될 수 있으므로 열린 협동 연결은 재연결이 필요할 수 있습니다.
+4. 관리 화면에서 변경된 Compute, 공개 `/release.json`과 `/api/health`, 기존 지급 영수증·회원 저장 보존을 확인합니다. 코드가 같으므로 게임 업데이트나 선물 재지급을 유발하지 않습니다.
+5. 승인된 설정 변경 PR을 병합해 소스의 `render.yaml`과 실제 서비스 설정을 맞춥니다. 자동 배포 Off와 기존 수동 승인 배포 절차는 유지합니다.
+
+되돌릴 때는 Compute를 Free로 바꾸고 `render.yaml`의 plan도 free로 되돌립니다. 웹 서버만 재시작되며 같은 Neon DB를 계속 사용합니다. Free에서는 15분 미접속 시 휴면 대기가 다시 생깁니다. 이미 사용한 유료 컴퓨팅의 청구분은 별도입니다.
+
+근거: [유료 Compute는 휴면하지 않음](https://render.com/docs/faq), [Compute ID](https://render.com/docs/compute-plans), [Blueprint plan](https://render.com/docs/blueprint-spec#plan). 요금은 해당 서비스의 Render Compute 화면에서 재확인합니다.
 
 ## 데이터 보관 조건
 
 - Neon Free는 기간 제한 없는 무료 플랜입니다. 현재 공식 요금제는 프로젝트당 1GB, 월 100 CU-hours, 외부 전송 5GB를 안내합니다. 실제 계정 콘솔의 한도도 함께 확인하세요.
 - Neon의 컴퓨팅/전송 한도 초과는 접속을 일시 정지하고, 저장 공간 한도 초과는 용량을 늘리는 쓰기를 거부합니다. 이런 한도 도달로 데이터를 삭제하지 않는다고 명시합니다. 서비스 변경, 계정 폐쇄, 사고에 대비한 영구 보관 보장은 아니므로 별도 백업이 필요합니다.
-- Render Free는 15분 미접속 시 잠들 수 있고 다시 켜질 때 약 1분이 걸릴 수 있습니다. 서버 파일은 재시작하면 사라질 수 있으므로 게임 저장은 Neon에만 기록합니다.
-- 두 서비스 모두 무료 플랜을 유지합니다. Render에 결제수단이 있으면 전송량 등 초과 요금이 생길 수 있습니다. 무료 시험 계정에는 결제수단을 추가하지 마세요. 무료 한도 초과로 서비스가 멈추어도 자동 유료 전환은 하지 않습니다.
+- 초기 Render Free는 15분 미접속 시 잠들 수 있고 다시 켜질 때 약 1분이 걸릴 수 있습니다. 상시 실행 Compute로 전환하면 이 자동 휴면을 제거합니다. 서버 파일은 재시작하면 사라질 수 있으므로 게임 저장은 Neon에만 기록합니다.
+- Neon은 Free를 유지하며 Render Compute만 승인된 유료 요금제로 바꿉니다. 무료 한도 초과를 이유로 DB나 다른 서비스를 자동 유료 전환하지 않습니다. 전송량 등 초과 요금은 계정의 포함량·과금 설정을 따릅니다.
 
 출처: [Neon 요금](https://neon.com/pricing), [Neon 한도 초과](https://neon.com/docs/introduction/plans), [Render Free](https://render.com/docs/free).
 
 ## 구성
 
-`render.yaml`은 무료 웹 서버 하나만 정의합니다. Node.js 24가 API와 빌드된 한국어 게임을 같은 HTTPS 주소에서 제공합니다. `client-release.json`의 정확한 게임 커밋만 빌드하며 게임의 라이선스·크레딧·폰트 라이선스도 포함합니다. 서버 저장소는 독립적으로 유지합니다.
+`render.yaml`은 상시 실행 웹 서버 하나만 정의합니다. Node.js 24가 API와 빌드된 한국어 게임을 같은 HTTPS 주소에서 제공합니다. `client-release.json`의 정확한 게임 커밋만 빌드하며 게임의 라이선스·크레딧·폰트 라이선스도 포함합니다. 서버 저장소는 독립적으로 유지합니다.
 
 1. Neon Free 프로젝트를 싱가포르, PostgreSQL 17, `pokesurvivor` DB로 만듭니다. 운영용 root branch를 사용하며 만료 시각을 지정하지 않습니다.
-2. Render Free 웹 서비스를 서버 저장소 main에 연결합니다. 공개 저장소 연결로 추가 GitHub 접근 권한 없이 배포할 수 있습니다.
+2. 기존 Render 웹 서비스를 서버 저장소 main에 연결한 상태로 유지합니다. 새로 생성하는 경우 위 유료 Compute 비용을 먼저 승인받아야 합니다. 공개 저장소 연결로 추가 GitHub 접근 권한 없이 배포할 수 있습니다.
 3. `render.yaml`의 build/start 명령과 환경변수를 적용합니다. `DATABASE_URL`은 Neon의 TLS 연결 문자열을 비밀 환경변수로 설정합니다. 코드·PR·대화에 노출하지 않습니다. `APP_ORIGIN`이 없으면 Render의 자동 제공 `RENDER_EXTERNAL_URL`을 사용합니다.
 4. 건강 확인 경로는 `/healthz`입니다. DB 쿼리를 실행하지 않아 DB가 불필요하게 깨어 있지 않습니다. 실제 DB 연결은 배포 후 `/api/health`로 확인합니다.
 5. 최초 생성만 Render 화면에서 배포하고, 이후 자동 배포는 끕니다. 이후에는 GitHub의 `Manual Render deployment`를 main에서 실행합니다. PostgreSQL 테스트와 게임 빌드가 통과한 뒤 production 환경에서 사람이 승인해야 배포 훅을 호출합니다.
