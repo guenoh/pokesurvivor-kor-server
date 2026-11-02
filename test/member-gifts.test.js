@@ -5,7 +5,7 @@ import pg from 'pg';
 import { newDb } from 'pg-mem';
 import { createApp } from '../src/app.js';
 import { migrate } from '../src/migrate.js';
-import { initializeNotices, grantAllMembers, grantMemberNotice, listNotices } from '../src/notices.js';
+import { initializeNotices, grantAllMembers, grantMemberNotice, listNotices, noticeConfig } from '../src/notices.js';
 import { snapshot, restore } from '../tools/backup.mjs';
 const notice = { id: 'kia-test', version: 1, title: '승리 기원', paragraphs: ['함께 응원해요!'], reward: { ticket1: 333, coins: 50000, window: 'members', automatic: true } };
 const config = { newAccountCoins: 500, notices: [notice], support: {} };
@@ -97,4 +97,37 @@ test('PostgreSQL backup restores gift receipts and schema-five backups do not du
       if (format >= 6) assert.deepEqual(restored.memberGrants, original.memberGrants);
     } finally { await target.end(); await admin.query(`DROP SCHEMA ${targetSchema} CASCADE`); }
   }
+});
+
+test('KIA playoff encouragement grants a separate 100 single tickets without repeating the earlier gift', async () => {
+  const gift = noticeConfig.notices.find(n => n.id === 'kor-kia-cheer-20261102');
+  const previous = noticeConfig.notices.find(n => n.id === 'kor-kia-victory-20261027');
+  assert.deepEqual(gift.reward, { ticket1: 100, window: 'members', automatic: true });
+  assert.equal(previous.reward.ticket1, 333); assert.equal(previous.reward.coins, 50000);
+  const campaign = { ...noticeConfig, notices: [previous, gift] };
+  await initializeNotices(pool, campaign);
+  const original = { coins: 120, tickets: { t1: 7, t10: 2 }, owned: { 25: { at: 1, from: 'starter' } }, shiny: { 150: { at: 2 } }, pupg: { 25: { hp: 4 } }, stats: { bestTime: 1823 }, bag: { mint: 3 }, tms: { confusion: 2 } };
+  const existing = await member(original);
+  await grantMemberNotice(pool, existing, previous, campaign);
+  const before = await stored(existing);
+  await grantAllMembers(pool, campaign);
+  const after = await stored(existing);
+  assert.equal(after.data.tickets.t1, before.data.tickets.t1 + 100);
+  assert.equal(after.data.tickets.t10, before.data.tickets.t10);
+  assert.equal(after.data.coins, before.data.coins);
+  for (const key of ['owned', 'shiny', 'pupg', 'stats', 'bag', 'tms']) assert.deepEqual(after.data[key], original[key]);
+  assert.deepEqual(after.data.led['server:' + previous.id], before.data.led['server:' + previous.id]);
+  assert.deepEqual(after.data.led['server:' + gift.id], { t1: [100, 0] });
+  assert.equal((await grantAllMembers(pool, campaign)).grants, 0);
+  assert.deepEqual(await stored(existing), after);
+  // Accounts created after the first bulk payout receive both campaigns once.
+  const newcomer = await member();
+  const { grantAutomaticRewards } = await import('../src/notices.js');
+  await grantAutomaticRewards(pool, newcomer, campaign);
+  const fresh = await stored(newcomer);
+  assert.equal(fresh.data.coins, 50500); assert.equal(fresh.data.tickets.t1, 433);
+  await grantAutomaticRewards(pool, newcomer, campaign);
+  assert.deepEqual(await stored(newcomer), fresh);
+  const published = (await listNotices(pool, existing, campaign)).notices.find(n => n.id === gift.id);
+  assert.equal(published.reward.claimed, true); assert.equal(published.reward.expiresAt, null);
 });
